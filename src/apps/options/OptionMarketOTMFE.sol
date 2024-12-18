@@ -121,6 +121,7 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
     /// @notice Interface for option pricing
     IOptionPricingV2 public optionPricing;
 
+    /// @notice Interface for verified spot price
     IVerifiedSpotPrice public verifiedSpotPrice;
 
     /// @notice Interface for position manager
