@@ -16,6 +16,7 @@ import {UniswapV3LiquidityManagement} from "../../test/uniswap-v3-utils/UniswapV
 import {IUniswapV3Factory} from "@uniswap/v3-core/contracts/interfaces/IUniswapV3Factory.sol";
 import {IUniswapV3Pool} from "@uniswap/v3-core/contracts/interfaces/IUniswapV3Pool.sol";
 import {IVerifiedSpotPrice} from "../../src/interfaces/IVerifiedSpotPrice.sol";
+import {IOptionMarketOTMFE} from "../../src/interfaces/apps/options/IOptionMarketOTMFE.sol";
 import {PoolSpotPrice} from "../../src/apps/options/pricing/PoolSpotPrice.sol";
 
 import {ISwapper} from "../../src/interfaces/ISwapper.sol";
@@ -28,6 +29,8 @@ import {IHandler} from "../../src/interfaces/IHandler.sol";
 import {TickMath} from "@uniswap/v3-core/contracts/libraries/TickMath.sol";
 import {LiquidityAmounts} from "v3-periphery/libraries/LiquidityAmounts.sol";
 import {Tick} from "@uniswap/v3-core/contracts/libraries/Tick.sol";
+
+import {OpenSettlement} from "../../src/periphery/OpenSettlement.sol";
 
 contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
     using TickMath for int24;
@@ -45,6 +48,8 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
     UniswapV3PoolUtils public uniswapV3PoolUtils;
     UniswapV3LiquidityManagement public uniswapV3LiquidityManagement;
 
+    OpenSettlement public openSettlement;
+
     MockERC20 public USDC; // token0
     MockERC20 public ETH; // token1
 
@@ -53,6 +58,8 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
 
     address public feeReceiver = makeAddr("feeReceiver");
 
+    address public publicFeeRecipient = makeAddr("publicFeeRecipient");
+
     address public owner = makeAddr("owner");
 
     address public user = makeAddr("user");
@@ -60,6 +67,8 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
     address public trader = makeAddr("trader");
 
     address public settler = makeAddr("settler");
+
+    address public garbage = makeAddr("garbage");
 
     IUniswapV3Pool public pool;
 
@@ -153,7 +162,11 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
 
         clammFeeStrategyV2.registerOptionMarket(address(optionMarketOTMFE), 350000);
 
+        openSettlement = new OpenSettlement(settler, publicFeeRecipient, 1000, 500);
+
         optionMarketOTMFE.updatePoolApporvals(settler, true, address(pool), true, 86400, true, 10 minutes);
+        optionMarketOTMFE.updatePoolApporvals(address(openSettlement), true, address(pool), true, 86400, true, 10 minutes);
+        
         optionMarketOTMFE.updatePoolSettings(
             address(feeReceiver),
             address(0),
@@ -714,6 +727,62 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         assertApproxEqRel(result.totalProfit, expectedProfit, 1e16, "Profit should be close to expected");
     }
 
+    function testExerciseCallOptionOpenSettlement() public {
+        // Setup: Buy a call option
+        testBuyCallOption();
+
+        TestVars memory vars;
+        (vars.sqrtPriceX96, vars.currentTick,,,,,) = pool.slot0();
+        int24 tickSpacing = pool.tickSpacing();
+        vars.tickUpper = ((vars.currentTick / tickSpacing) * tickSpacing) - tickSpacing;
+        vars.tickLower = vars.tickUpper - 1 * tickSpacing;
+
+        // Warp time to just before expiry
+        vm.warp(block.timestamp + 85200); // 10 minutes before
+
+        // price increase
+        uint256 swapAmount = 10000e6; // 50,000 USDC
+        vm.startPrank(address(this));
+        USDC.mint(address(this), swapAmount);
+        USDC.approve(address(pool), swapAmount);
+
+        pool.swap(
+            address(0xD3AD),
+            true,
+            int256(swapAmount),
+            TickMath.MIN_SQRT_RATIO + 1, // Swap to the upper tick
+            abi.encode(address(this))
+        );
+
+        vm.stopPrank();
+
+        // Prepare for exercise
+        uint256 optionId = 1; // Assuming this is the first option minted
+        uint256[] memory liquidityToSettle = new uint256[](1);
+        (,,,,, uint256 liquidityToUse) = optionMarketOTMFE.opTickMap(optionId, 0);
+        liquidityToSettle[0] = liquidityToUse;
+
+        ISwapper[] memory swappers = new ISwapper[](1);
+        swappers[0] = ISwapper(address(this));
+
+        bytes[] memory swapData = new bytes[](1);
+        swapData[0] = ""; // No swap data needed
+
+        IOptionMarketOTMFE.SettleOptionParams memory settleParams = IOptionMarketOTMFE.SettleOptionParams({
+            optionId: optionId,
+            swapper: swappers,
+            swapData: swapData,
+            liquidityToSettle: liquidityToSettle
+        });
+
+        // Exercise the option
+        vm.startPrank(trader);
+        vars.balanceBefore.balance0 = USDC.balanceOf(trader);
+        vars.balanceBefore.balance1 = ETH.balanceOf(trader);
+        vm.expectRevert(OptionMarketOTMFE.NotOwnerOrDelegator.selector);
+        IOptionMarketOTMFE.AssetsCache memory result = openSettlement.openSettle(IOptionMarketOTMFE(address(optionMarketOTMFE)), optionId, settleParams);
+    }
+
     function testExercisePutOption() public {
         // Setup: Buy a put option
         testBuyPutOption();
@@ -873,6 +942,66 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         assertApproxEqRel(result.totalProfit, expectedProfit, 1e16, "Profit should be close to expected");
     }
 
+    function testSettleCallOptionITMOpenSettlement() public {
+        // Setup: Buy a call option
+        testBuyCallOption();
+
+        TestVars memory vars;
+        (vars.sqrtPriceX96, vars.currentTick,,,,,) = pool.slot0();
+        int24 tickSpacing = pool.tickSpacing();
+        vars.tickUpper = ((vars.currentTick / tickSpacing) * tickSpacing) - tickSpacing;
+        vars.tickLower = vars.tickUpper - 1 * tickSpacing;
+
+        // Warp time to just before expiry
+        vm.warp(block.timestamp + 86500); // 10 minutes before
+
+        // price increase
+        uint256 swapAmount = 10000e6; // 50,000 USDC
+        vm.startPrank(address(this));
+        USDC.mint(address(this), swapAmount);
+        USDC.approve(address(pool), swapAmount);
+
+        pool.swap(
+            address(0xD3AD),
+            true,
+            int256(swapAmount),
+            TickMath.MIN_SQRT_RATIO + 1, // Swap to the upper tick
+            abi.encode(address(this))
+        );
+
+        vm.stopPrank();
+
+        // Prepare for exercise
+        uint256 optionId = 1; // Assuming this is the first option minted
+        uint256[] memory liquidityToSettle = new uint256[](1);
+        (,,,,, uint256 liquidityToUse) = optionMarketOTMFE.opTickMap(optionId, 0);
+        liquidityToSettle[0] = liquidityToUse;
+
+        ISwapper[] memory swappers = new ISwapper[](1);
+        swappers[0] = ISwapper(address(this));
+
+        bytes[] memory swapData = new bytes[](1);
+        swapData[0] = ""; // No swap data needed
+
+        IOptionMarketOTMFE.SettleOptionParams memory settleParams = IOptionMarketOTMFE.SettleOptionParams({
+            optionId: optionId,
+            swapper: swappers,
+            swapData: swapData,
+            liquidityToSettle: liquidityToSettle
+        });
+
+        // Exercise the option
+        vm.startPrank(garbage);
+        vars.balanceBefore.balance0 = USDC.balanceOf(trader);
+        vars.balanceBefore.balance1 = ETH.balanceOf(trader);
+
+        IOptionMarketOTMFE.AssetsCache memory result = openSettlement.openSettle(IOptionMarketOTMFE(address(optionMarketOTMFE)), optionId, settleParams);
+        console.log("result.totalProfit", result.totalProfit);
+        console.log("Public Fee Recipient Balance", USDC.balanceOf(openSettlement.publicFeeRecipient()));
+        console.log("Settler Balance", USDC.balanceOf(garbage));
+        console.log("Trader Balance", USDC.balanceOf(trader));
+    }
+
     function testSettlePutOptionITM() public {
         // Setup: Buy a put option
         testBuyPutOption();
@@ -991,6 +1120,70 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         vars.balanceBefore.balance1 = ETH.balanceOf(trader);
 
         OptionMarketOTMFE.AssetsCache memory result = optionMarketOTMFE.settleOption(settleParams);
+
+        vars.balanceAfter.balance0 = USDC.balanceOf(trader);
+        vars.balanceAfter.balance1 = ETH.balanceOf(trader);
+        vm.stopPrank();
+
+        // Assertions
+        uint256 ethAmount = LiquidityAmounts.getAmount1ForLiquidity(
+            TickMath.getSqrtRatioAtTick(vars.tickLower),
+            TickMath.getSqrtRatioAtTick(vars.tickUpper),
+            uint128(liquidityToUse)
+        );
+        assertEq(address(result.assetToUse), address(ETH), "Asset to use should be ETH");
+        assertEq(address(result.assetToGet), address(USDC), "Asset to get should be USDC");
+        assertEq(result.totalProfit, 0, "Should not have made a profit");
+        assertEq(result.totalAssetRelocked, ethAmount, "Assets relocked");
+        assertTrue(result.isSettle, "Should be a settlement");
+
+        // Calculate expected profit
+        uint256 strikePrice = optionMarketOTMFE.getPricePerCallAssetViaTick(pool, vars.tickUpper);
+
+        uint256 expectedProfit = vars.balanceAfter.balance0 - vars.balanceBefore.balance0;
+
+        assertEq(result.totalProfit, expectedProfit, "Profit should be close to expected");
+        assertApproxEqRel(result.totalProfit, expectedProfit, 1e16, "Profit should be close to expected");
+    }
+
+    function testSettleCallOptionOTMOpenSettlement() public {
+        // Setup: Buy a call option
+        testBuyCallOption();
+
+        TestVars memory vars;
+        (vars.sqrtPriceX96, vars.currentTick,,,,,) = pool.slot0();
+        int24 tickSpacing = pool.tickSpacing();
+        vars.tickUpper = ((vars.currentTick / tickSpacing) * tickSpacing) - tickSpacing;
+        vars.tickLower = vars.tickUpper - 1 * tickSpacing;
+
+        // Warp time to just before expiry
+        vm.warp(block.timestamp + 86500); // 10 minutes before
+
+        // Prepare for exercise
+        uint256 optionId = 1; // Assuming this is the first option minted
+        uint256[] memory liquidityToSettle = new uint256[](1);
+        (,,,,, uint256 liquidityToUse) = optionMarketOTMFE.opTickMap(optionId, 0);
+        liquidityToSettle[0] = liquidityToUse;
+
+        ISwapper[] memory swappers = new ISwapper[](1);
+        swappers[0] = ISwapper(address(this));
+
+        bytes[] memory swapData = new bytes[](1);
+        swapData[0] = ""; // No swap data needed
+
+        IOptionMarketOTMFE.SettleOptionParams memory settleParams = IOptionMarketOTMFE.SettleOptionParams({
+            optionId: optionId,
+            swapper: swappers,
+            swapData: swapData,
+            liquidityToSettle: liquidityToSettle
+        });
+
+        // Exercise the option
+        vm.startPrank(settler);
+        vars.balanceBefore.balance0 = USDC.balanceOf(trader);
+        vars.balanceBefore.balance1 = ETH.balanceOf(trader);
+
+        IOptionMarketOTMFE.AssetsCache memory result = openSettlement.openSettle(IOptionMarketOTMFE(address(optionMarketOTMFE)), optionId, settleParams);
 
         vars.balanceAfter.balance0 = USDC.balanceOf(trader);
         vars.balanceAfter.balance1 = ETH.balanceOf(trader);
