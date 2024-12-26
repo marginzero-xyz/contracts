@@ -6,11 +6,12 @@ import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ERC20} from "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
 import {ISwapper} from "../interfaces/ISwapper.sol";
+import {Multicall} from "openzeppelin-contracts/contracts/utils/Multicall.sol";
 
 /// @title OpenSettlement
 /// @notice Contract that handles the settlement of expired options with a two-tier fee structure
 /// @dev Inherits from Ownable and uses SafeERC20 for token transfers
-contract OpenSettlement is Ownable {
+contract OpenSettlement is Ownable, Multicall {
     using SafeERC20 for ERC20;
 
     // events
