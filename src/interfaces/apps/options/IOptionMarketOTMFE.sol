@@ -7,7 +7,6 @@ import {ISwapper} from "../../ISwapper.sol";
 
 import {ERC20} from "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
 
-
 interface IOptionMarketOTMFE {
     /// @notice Struct to store option data
     struct OptionData {

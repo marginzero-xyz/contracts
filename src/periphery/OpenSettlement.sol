@@ -93,7 +93,10 @@ contract OpenSettlement is Ownable {
     /// @notice Updates the whitelisted status of a settler address
     /// @param _isWhitelistedSettler Address to update
     /// @param _isWhitelistedSettlerStatus New whitelisted status
-    function setIsWhitelistedSettler(address _isWhitelistedSettler, bool _isWhitelistedSettlerStatus) external onlyOwner {
+    function setIsWhitelistedSettler(address _isWhitelistedSettler, bool _isWhitelistedSettlerStatus)
+        external
+        onlyOwner
+    {
         isWhitelistedSettler[_isWhitelistedSettler] = _isWhitelistedSettlerStatus;
     }
 
