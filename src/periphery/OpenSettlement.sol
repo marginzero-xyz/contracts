@@ -13,6 +13,16 @@ import {ISwapper} from "../interfaces/ISwapper.sol";
 contract OpenSettlement is Ownable {
     using SafeERC20 for ERC20;
 
+    // events
+
+    event LogSettleOptionsOpen(
+        address indexed market,
+        uint256 indexed optionId,
+        uint256 totalProfitForUser,
+        uint256 settledFeeProtocol,
+        uint256 settledFeePublic
+    );
+
     // errors
     /// @notice Thrown when attempting to settle an option that hasn't been settled by the market
     error OptionNotSettled();
@@ -63,16 +73,27 @@ contract OpenSettlement is Ownable {
         (IOptionMarketOTMFE.AssetsCache memory ac) = market.settleOption(settleParams);
 
         if (!ac.isSettle) revert OptionNotSettled();
+        if (settleFeeProtocol > 0) {
+            uint256 feeProtocol;
+            uint256 feePublic;
+            if (ac.totalProfit > 0 && isWhitelistedSettler[msg.sender]) {
+                feeProtocol = (ac.totalProfit * settleFeeProtocol) / SETTLE_FEE_PRECISION;
+                ac.assetToGet.safeTransfer(publicFeeRecipient, feeProtocol);
+                ac.assetToGet.safeTransfer(market.ownerOf(optionId), ac.totalProfit - feeProtocol);
+            } else if (ac.totalProfit > 0) {
+                feeProtocol = (ac.totalProfit * (settleFeeProtocol - settleFeePublic)) / SETTLE_FEE_PRECISION;
+                feePublic = (ac.totalProfit * settleFeePublic) / SETTLE_FEE_PRECISION;
+                ac.assetToGet.safeTransfer(publicFeeRecipient, feeProtocol);
+                ac.assetToGet.safeTransfer(msg.sender, feePublic);
+                ac.assetToGet.safeTransfer(market.ownerOf(optionId), ac.totalProfit - feeProtocol - feePublic);
+            }
+            emit LogSettleOptionsOpen(
+                address(market), optionId, ac.totalProfit - feeProtocol - feePublic, feeProtocol, feePublic
+            );
+        } else {
+            ac.assetToGet.safeTransfer(market.ownerOf(optionId), ac.totalProfit);
 
-        if (ac.totalProfit > 0 && isWhitelistedSettler[msg.sender]) {
-            uint256 feeProtocol = (ac.totalProfit * settleFeeProtocol) / SETTLE_FEE_PRECISION;
-            ac.assetToGet.safeTransfer(publicFeeRecipient, feeProtocol);
-            ac.assetToGet.safeTransfer(market.ownerOf(optionId), ac.totalProfit - feeProtocol);
-        } else if (ac.totalProfit > 0) {
-            uint256 feePublic = (ac.totalProfit * settleFeePublic) / SETTLE_FEE_PRECISION;
-            ac.assetToGet.safeTransfer(publicFeeRecipient, feePublic);
-            ac.assetToGet.safeTransfer(msg.sender, feePublic);
-            ac.assetToGet.safeTransfer(market.ownerOf(optionId), ac.totalProfit - feePublic - feePublic);
+            emit LogSettleOptionsOpen(address(market), optionId, ac.totalProfit, 0, 0);
         }
 
         return ac;
