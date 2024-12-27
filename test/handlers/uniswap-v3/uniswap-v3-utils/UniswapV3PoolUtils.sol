@@ -7,7 +7,7 @@ import {IUniswapV3Factory} from "@uniswap/v3-core/contracts/interfaces/IUniswapV
 import {IUniswapV3Pool} from "@uniswap/v3-core/contracts/interfaces/IUniswapV3Pool.sol";
 import {LiquidityAmounts} from "v3-periphery/libraries/LiquidityAmounts.sol";
 import {UniswapV3LiquidityManagement} from "./UniswapV3LiquidityManagement.sol";
-import {MockERC20} from "../mocks/MockERC20.sol";
+import {MockERC20} from "../../../mocks/MockERC20.sol";
 
 contract UniswapV3PoolUtils is Test {
     function deployAndInitializePool(

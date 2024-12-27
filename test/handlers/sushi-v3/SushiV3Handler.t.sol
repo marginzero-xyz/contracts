@@ -2,33 +2,30 @@
 pragma solidity ^0.8.0;
 
 import "forge-std/Test.sol";
-import {UniswapV3Handler} from "../src/handlers/uniswap-v3/UniswapV3Handler.sol";
-import {PositionManager} from "../src/PositionManager.sol";
-import {UniswapV3FactoryDeployer} from "./uniswap-v3-utils/UniswapV3FactoryDeployer.sol";
+import {SushiV3Handler} from "../../../src/handlers/sushi-v3/SushiV3Handler.sol";
+import {PositionManager} from "../../../src/PositionManager.sol";
 
-import {UniswapV3PoolUtils} from "./uniswap-v3-utils/UniswapV3PoolUtils.sol";
-import {UniswapV3LiquidityManagement} from "./uniswap-v3-utils/UniswapV3LiquidityManagement.sol";
+import {SushiV3PoolUtils} from "./sushi-v3-utils/SushiV3PoolUtils.sol";
+import {SushiV3LiquidityManagement} from "./sushi-v3-utils/SushiV3LiquidityManagement.sol";
 
 import {IUniswapV3Factory} from "@uniswap/v3-core/contracts/interfaces/IUniswapV3Factory.sol";
 import {IUniswapV3Pool} from "@uniswap/v3-core/contracts/interfaces/IUniswapV3Pool.sol";
-import {MockERC20} from "./mocks/MockERC20.sol";
-import {IV3Pool} from "../src/interfaces/handlers/V3/IV3Pool.sol";
-import {V3BaseHandler} from "../src/handlers/V3BaseHandler.sol";
-import {IHandler} from "../src/interfaces/IHandler.sol";
+import {MockERC20} from "../../mocks/MockERC20.sol";
+import {IV3Pool} from "../../../src/interfaces/handlers/V3/IV3Pool.sol";
+import {V3BaseHandler} from "../../../src/handlers/V3BaseHandler.sol";
+import {IHandler} from "../../../src/interfaces/IHandler.sol";
 import {TickMath} from "@uniswap/v3-core/contracts/libraries/TickMath.sol";
 import {LiquidityAmounts} from "v3-periphery/libraries/LiquidityAmounts.sol";
 import {Tick} from "@uniswap/v3-core/contracts/libraries/Tick.sol";
 
-contract UniswapV3HandlerTest is Test, UniswapV3FactoryDeployer {
+contract SushiV3HandlerTest is Test {
     using TickMath for int24;
 
     PositionManager public positionManager;
-    UniswapV3Handler public handler;
-    UniswapV3FactoryDeployer public factoryDeployer;
-    IUniswapV3Factory public factory;
+    SushiV3Handler public handler;
 
-    UniswapV3PoolUtils public uniswapV3PoolUtils;
-    UniswapV3LiquidityManagement public uniswapV3LiquidityManagement;
+    SushiV3PoolUtils public sushiV3PoolUtils;
+    SushiV3LiquidityManagement public sushiV3LiquidityManagement;
 
     MockERC20 public USDC; // token0
     MockERC20 public ETH; // token1
@@ -43,26 +40,28 @@ contract UniswapV3HandlerTest is Test, UniswapV3FactoryDeployer {
     IUniswapV3Pool public pool;
 
     function setUp() public {
-        // Deploy the Uniswap V3 Factory
-        factory = IUniswapV3Factory(deployUniswapV3Factory());
+        vm.createSelectFork(vm.envString("SONIC_RPC_URL"), 1583230);
 
-        uniswapV3PoolUtils = new UniswapV3PoolUtils();
+        sushiV3PoolUtils = new SushiV3PoolUtils();
 
-        uniswapV3LiquidityManagement = new UniswapV3LiquidityManagement(address(factory));
+        address factory = 0x46B3fDF7b5CDe91Ac049936bF0bDb12c5d22202e;
+        bytes32 PAIR_INIT_CODE_HASH = 0xe34f199b19b2b4f47f68442619d555527d244f78a3297ea89325f843f87b8b54;
+
+        sushiV3LiquidityManagement = new SushiV3LiquidityManagement(factory);
 
         // Deploy mock tokens for testing
-        USDC = new MockERC20("USD Coin", "USDC", 6);
         ETH = new MockERC20("Ethereum", "ETH", 18);
+        USDC = new MockERC20("USD Coin", "USDC", 6);
 
         vm.startPrank(owner);
 
         positionManager = new PositionManager(owner);
 
         // Deploy the Uniswap V3 handler with additional arguments
-        handler = new UniswapV3Handler(
+        handler = new SushiV3Handler(
             feeReceiver, // _feeReceiver
             address(factory), // _factory
-            0xa598dd2fba360510c5a8f02f44423a4468e902df5857dbce3ca162a43a3a31ff
+            PAIR_INIT_CODE_HASH
         );
         // Whitelist the handler
         positionManager.updateWhitelistHandler(address(handler), true);
@@ -75,11 +74,13 @@ contract UniswapV3HandlerTest is Test, UniswapV3FactoryDeployer {
 
         // Initialize the pool with sqrtPriceX96 representing 1 ETH = 2000 USDC
         uint160 sqrtPriceX96 = 1771595571142957166518320255467520;
-        pool = IUniswapV3Pool(uniswapV3PoolUtils.deployAndInitializePool(factory, ETH, USDC, 500, sqrtPriceX96));
+        pool = IUniswapV3Pool(
+            sushiV3PoolUtils.deployAndInitializePool(IUniswapV3Factory(factory), ETH, USDC, 500, sqrtPriceX96)
+        );
 
-        uniswapV3PoolUtils.addLiquidity(
-            UniswapV3PoolUtils.AddLiquidityStruct({
-                liquidityManager: address(uniswapV3LiquidityManagement),
+        sushiV3PoolUtils.addLiquidity(
+            SushiV3PoolUtils.AddLiquidityStruct({
+                liquidityManager: address(sushiV3LiquidityManagement),
                 pool: pool,
                 user: owner,
                 desiredAmount0: 100000000e6,
@@ -2068,9 +2069,9 @@ contract UniswapV3HandlerTest is Test, UniswapV3FactoryDeployer {
     function testSplitPositionOneNegativeTick() public {
         TestVars memory vars;
 
-        uniswapV3PoolUtils.addLiquidity(
-            UniswapV3PoolUtils.AddLiquidityStruct({
-                liquidityManager: address(uniswapV3LiquidityManagement),
+        sushiV3PoolUtils.addLiquidity(
+            SushiV3PoolUtils.AddLiquidityStruct({
+                liquidityManager: address(sushiV3LiquidityManagement),
                 pool: pool,
                 user: owner,
                 desiredAmount0: 10000000000000000000000000e6,
@@ -2897,9 +2898,9 @@ contract UniswapV3HandlerTest is Test, UniswapV3FactoryDeployer {
 
         vm.startPrank(address(this));
 
-        uniswapV3PoolUtils.addLiquidity(
-            UniswapV3PoolUtils.AddLiquidityStruct({
-                liquidityManager: address(uniswapV3LiquidityManagement),
+        sushiV3PoolUtils.addLiquidity(
+            SushiV3PoolUtils.AddLiquidityStruct({
+                liquidityManager: address(sushiV3LiquidityManagement),
                 pool: pool,
                 user: owner,
                 desiredAmount0: 100000000e6,
@@ -3023,9 +3024,9 @@ contract UniswapV3HandlerTest is Test, UniswapV3FactoryDeployer {
 
         vm.startPrank(address(this));
 
-        uniswapV3PoolUtils.addLiquidity(
-            UniswapV3PoolUtils.AddLiquidityStruct({
-                liquidityManager: address(uniswapV3LiquidityManagement),
+        sushiV3PoolUtils.addLiquidity(
+            SushiV3PoolUtils.AddLiquidityStruct({
+                liquidityManager: address(sushiV3LiquidityManagement),
                 pool: pool,
                 user: owner,
                 desiredAmount0: 100000000e6,
@@ -3149,9 +3150,9 @@ contract UniswapV3HandlerTest is Test, UniswapV3FactoryDeployer {
 
         vm.startPrank(address(this));
 
-        uniswapV3PoolUtils.addLiquidity(
-            UniswapV3PoolUtils.AddLiquidityStruct({
-                liquidityManager: address(uniswapV3LiquidityManagement),
+        sushiV3PoolUtils.addLiquidity(
+            SushiV3PoolUtils.AddLiquidityStruct({
+                liquidityManager: address(sushiV3LiquidityManagement),
                 pool: pool,
                 user: owner,
                 desiredAmount0: 100000000e6,
@@ -3277,9 +3278,9 @@ contract UniswapV3HandlerTest is Test, UniswapV3FactoryDeployer {
 
         vm.startPrank(address(this));
 
-        uniswapV3PoolUtils.addLiquidity(
-            UniswapV3PoolUtils.AddLiquidityStruct({
-                liquidityManager: address(uniswapV3LiquidityManagement),
+        sushiV3PoolUtils.addLiquidity(
+            SushiV3PoolUtils.AddLiquidityStruct({
+                liquidityManager: address(sushiV3LiquidityManagement),
                 pool: pool,
                 user: owner,
                 desiredAmount0: 100000000e6,
@@ -3406,11 +3407,9 @@ contract UniswapV3HandlerTest is Test, UniswapV3FactoryDeployer {
         splitTicks[2] = -48270;
         splitTicks[3] = initialTickUpper;
 
-        vm.startPrank(address(this));
-
-        uniswapV3PoolUtils.addLiquidity(
-            UniswapV3PoolUtils.AddLiquidityStruct({
-                liquidityManager: address(uniswapV3LiquidityManagement),
+        sushiV3PoolUtils.addLiquidity(
+            SushiV3PoolUtils.AddLiquidityStruct({
+                liquidityManager: address(sushiV3LiquidityManagement),
                 pool: pool,
                 user: owner,
                 desiredAmount0: 100000000e6,
@@ -3537,9 +3536,9 @@ contract UniswapV3HandlerTest is Test, UniswapV3FactoryDeployer {
 
         vm.startPrank(address(this));
 
-        uniswapV3PoolUtils.addLiquidity(
-            UniswapV3PoolUtils.AddLiquidityStruct({
-                liquidityManager: address(uniswapV3LiquidityManagement),
+        sushiV3PoolUtils.addLiquidity(
+            SushiV3PoolUtils.AddLiquidityStruct({
+                liquidityManager: address(sushiV3LiquidityManagement),
                 pool: pool,
                 user: owner,
                 desiredAmount0: 100000000e6,

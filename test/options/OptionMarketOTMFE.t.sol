@@ -8,10 +8,11 @@ import {PositionManager} from "../../src/PositionManager.sol";
 import {OptionMarketOTMFE} from "../../src/apps/options/OptionMarketOTMFE.sol";
 import {OptionPricingLinearV2} from "../../src/apps/options/pricing/OptionPricingLinearV2.sol";
 import {ClammFeeStrategyV2} from "../../src/apps/options/pricing/fees/ClammFeeStrategyV2.sol";
-import {UniswapV3FactoryDeployer} from "../../test/uniswap-v3-utils/UniswapV3FactoryDeployer.sol";
+import {UniswapV3FactoryDeployer} from "../../test/handlers/uniswap-v3/uniswap-v3-utils/UniswapV3FactoryDeployer.sol";
 
-import {UniswapV3PoolUtils} from "../../test/uniswap-v3-utils/UniswapV3PoolUtils.sol";
-import {UniswapV3LiquidityManagement} from "../../test/uniswap-v3-utils/UniswapV3LiquidityManagement.sol";
+import {UniswapV3PoolUtils} from "../../test/handlers/uniswap-v3/uniswap-v3-utils/UniswapV3PoolUtils.sol";
+import {UniswapV3LiquidityManagement} from
+    "../../test/handlers/uniswap-v3/uniswap-v3-utils/UniswapV3LiquidityManagement.sol";
 
 import {IUniswapV3Factory} from "@uniswap/v3-core/contracts/interfaces/IUniswapV3Factory.sol";
 import {IUniswapV3Pool} from "@uniswap/v3-core/contracts/interfaces/IUniswapV3Pool.sol";
