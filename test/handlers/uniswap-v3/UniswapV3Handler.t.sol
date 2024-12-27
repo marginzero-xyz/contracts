@@ -2,8 +2,8 @@
 pragma solidity ^0.8.0;
 
 import "forge-std/Test.sol";
-import {UniswapV3Handler} from "../src/handlers/uniswap-v3/UniswapV3Handler.sol";
-import {PositionManager} from "../src/PositionManager.sol";
+import {UniswapV3Handler} from "../../../src/handlers/uniswap-v3/UniswapV3Handler.sol";
+import {PositionManager} from "../../../src/PositionManager.sol";
 import {UniswapV3FactoryDeployer} from "./uniswap-v3-utils/UniswapV3FactoryDeployer.sol";
 
 import {UniswapV3PoolUtils} from "./uniswap-v3-utils/UniswapV3PoolUtils.sol";
@@ -11,10 +11,10 @@ import {UniswapV3LiquidityManagement} from "./uniswap-v3-utils/UniswapV3Liquidit
 
 import {IUniswapV3Factory} from "@uniswap/v3-core/contracts/interfaces/IUniswapV3Factory.sol";
 import {IUniswapV3Pool} from "@uniswap/v3-core/contracts/interfaces/IUniswapV3Pool.sol";
-import {MockERC20} from "./mocks/MockERC20.sol";
-import {IV3Pool} from "../src/interfaces/handlers/V3/IV3Pool.sol";
-import {V3BaseHandler} from "../src/handlers/V3BaseHandler.sol";
-import {IHandler} from "../src/interfaces/IHandler.sol";
+import {MockERC20} from "../../mocks/MockERC20.sol";
+import {IV3Pool} from "../../../src/interfaces/handlers/V3/IV3Pool.sol";
+import {V3BaseHandler} from "../../../src/handlers/V3BaseHandler.sol";
+import {IHandler} from "../../../src/interfaces/IHandler.sol";
 import {TickMath} from "@uniswap/v3-core/contracts/libraries/TickMath.sol";
 import {LiquidityAmounts} from "v3-periphery/libraries/LiquidityAmounts.sol";
 import {Tick} from "@uniswap/v3-core/contracts/libraries/Tick.sol";
