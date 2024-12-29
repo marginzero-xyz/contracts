@@ -4,5 +4,8 @@ out = "out"
 libs = ["lib"]
 evm_version = "shanghai"
 
+[etherscan]
+sonic = {chain = 146, key = "6BAMDTESGP5JZEQJ5DEAH6CPD2HAPZEDJ8", url = "https://api.sonicscan.org/api"}
+
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
