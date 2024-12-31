@@ -88,6 +88,7 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
         address pool,
         bool statusPools,
         uint256 ttl,
+        uint256 ttlStartTime,
         bool ttlStatus,
         uint256 bufferTime
     );
@@ -103,16 +104,15 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
     error ArrayLenMismatch();
     error NotEnoughAfterSwap();
     error NotApprovedSettler();
-    error NotIVSetter();
     error InvalidPool();
     error NotApprovedTTL();
     error InBUFFER_TIME();
     error Expired();
-    /// @notice Counter for option IDs
+    error TTLNotSet();
 
+    /// @notice Counter for option IDs
     uint256 public optionIds;
-    /// @notice Start time for the contract
-    uint256 START_TIME;
+
     /// @notice Buffer time for option expiry
     uint256 BUFFER_TIME = 10 minutes;
 
@@ -157,6 +157,8 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
     mapping(address => bool) public settlers;
     /// @notice Mapping of TTL to approval status
     mapping(uint256 => bool) public approvedTTLs;
+    /// @notice Mapping of TTL to start time
+    mapping(uint256 => uint256) public ttlStartTime;
 
     /// @notice Constructor for the OptionMarketOTM_Fixed_Expiry_V1 contract
     /// @param _pm Address of the position manager
@@ -165,7 +167,6 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
     /// @param _callAsset Address of the call asset
     /// @param _putAsset Address of the put asset
     /// @param _primePool Address of the prime pool
-    /// @param _START_TIME Start time for the contract
     constructor(
         address _pm,
         address _optionPricing,
@@ -173,8 +174,7 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
         address _callAsset,
         address _putAsset,
         address _primePool,
-        address _verifiedSpotPrice,
-        uint256 _START_TIME
+        address _verifiedSpotPrice
     ) Ownable(msg.sender) {
         positionManager = IPositionManager(_pm);
         callAsset = _callAsset;
@@ -195,8 +195,6 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
 
         callAssetDecimals = ERC20(_callAsset).decimals();
         putAssetDecimals = ERC20(_putAsset).decimals();
-
-        START_TIME = _START_TIME;
 
         emit LogOptionsMarketInitialized(_primePool, _optionPricing, _dpFee, _callAsset, _putAsset);
     }
@@ -233,7 +231,7 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
             revert NotApprovedTTL();
         }
 
-        uint256 expiry = block.timestamp + (_params.ttl - ((block.timestamp - START_TIME) % _params.ttl));
+        uint256 expiry = block.timestamp + (_params.ttl - ((block.timestamp - ttlStartTime[_params.ttl]) % _params.ttl));
 
         if (expiry - block.timestamp > _params.ttl - BUFFER_TIME) {
             revert InBUFFER_TIME();
@@ -657,7 +655,8 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
     /// @param _statusSettler The settler status
     /// @param _pool The pool address
     /// @param _statusPools The pool status
-    /// @param ttl The time-to-live
+    /// @param _ttl The time-to-live
+    /// @param _ttlStartTime The start time for the TTL
     /// @param ttlStatus The TTL status
     /// @param _BUFFER_TIME The buffer time
     function updatePoolApporvals(
@@ -665,24 +664,31 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
         bool _statusSettler,
         address _pool,
         bool _statusPools,
-        uint256 ttl,
+        uint256 _ttl,
+        uint256 _ttlStartTime,
         bool ttlStatus,
         uint256 _BUFFER_TIME
     ) external onlyOwner {
         settlers[_settler] = _statusSettler;
         approvedPools[_pool] = _statusPools;
-        approvedTTLs[ttl] = ttlStatus;
+        approvedTTLs[_ttl] = ttlStatus;
         BUFFER_TIME = _BUFFER_TIME;
 
+        if (_ttlStartTime == 0) revert TTLNotSet();
+
+        ttlStartTime[_ttl] = _ttlStartTime;
+
         IUniswapV3Pool pool = IUniswapV3Pool(_pool);
+
         if (pool.token0() != callAsset && pool.token1() != callAsset) {
             revert InvalidPool();
         }
+
         if (pool.token0() != putAsset && pool.token1() != putAsset) {
             revert InvalidPool();
         }
 
-        emit LogUpdatePoolApprovals(_settler, _statusSettler, _pool, _statusPools, ttl, ttlStatus, _BUFFER_TIME);
+        emit LogUpdatePoolApprovals(_settler, _statusSettler, _pool, _statusPools, _ttl, _ttlStartTime, ttlStatus, _BUFFER_TIME);
     }
 
     /// @notice Updates pool settings
