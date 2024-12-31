@@ -688,7 +688,9 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
             revert InvalidPool();
         }
 
-        emit LogUpdatePoolApprovals(_settler, _statusSettler, _pool, _statusPools, _ttl, _ttlStartTime, ttlStatus, _BUFFER_TIME);
+        emit LogUpdatePoolApprovals(
+            _settler, _statusSettler, _pool, _statusPools, _ttl, _ttlStartTime, ttlStatus, _BUFFER_TIME
+        );
     }
 
     /// @notice Updates pool settings
