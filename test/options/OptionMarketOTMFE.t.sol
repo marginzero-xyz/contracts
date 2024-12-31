@@ -155,8 +155,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
             address(ETH),
             address(USDC),
             address(pool),
-            address(poolSpotPrice),
-            1729065600
+            address(poolSpotPrice)
         );
 
         vm.warp(1729238400);
@@ -165,9 +164,9 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
 
         openSettlement = new OpenSettlement(settler, publicFeeRecipient, 1000, 500);
 
-        optionMarketOTMFE.updatePoolApporvals(settler, true, address(pool), true, 86400, true, 10 minutes);
+        optionMarketOTMFE.updatePoolApporvals(settler, true, address(pool), true, 86400, 1729065600, true, 10 minutes);
         optionMarketOTMFE.updatePoolApporvals(
-            address(openSettlement), true, address(pool), true, 86400, true, 10 minutes
+            address(openSettlement), true, address(pool), true, 86400, 1729065600, true, 10 minutes
         );
 
         optionMarketOTMFE.updatePoolSettings(
