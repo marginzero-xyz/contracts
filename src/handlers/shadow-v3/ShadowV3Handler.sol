@@ -7,6 +7,18 @@ import {LiquidityManager} from "./LiquidityManager.sol";
 import {IV3Pool} from "../../interfaces/handlers/V3/IV3Pool.sol";
 import {IRamsesV3Pool} from "./IRamsesV3Pool.sol";
 
+interface IGaugeV3 {
+    function getPeriodReward(
+        uint256 period,
+        address[] calldata tokens,
+        address owner,
+        uint256 index,
+        int24 tickLower,
+        int24 tickUpper,
+        address receiver
+    ) external;
+}
+
 /// @title ShadowV3Handler
 /// @author 0xcarrot
 /// @notice Handles Shadow V3 specific operations
@@ -88,5 +100,18 @@ contract ShadowV3Handler is V3BaseHandlerVe33Shadow, LiquidityManager {
         returns (uint256 amount0, uint256 amount1)
     {
         (amount0, amount1) = IRamsesV3Pool(address(_pool)).burn(uint256(0), tickLower, tickUpper, liquidity);
+    }
+
+    function getGaugeRewards(
+        address _gauge,
+        uint256 period,
+        address[] calldata tokens,
+        address owner,
+        uint256 index,
+        int24 tickLower,
+        int24 tickUpper,
+        address receiver
+    ) external onlyOwner {
+        IGaugeV3(_gauge).getPeriodReward(period, tokens, owner, index, tickLower, tickUpper, receiver);
     }
 }
