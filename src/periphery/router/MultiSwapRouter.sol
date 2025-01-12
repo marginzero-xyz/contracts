@@ -8,6 +8,7 @@ import {IERC721} from "openzeppelin-contracts/contracts/token/ERC721/IERC721.sol
 import {IERC721Receiver} from "openzeppelin-contracts/contracts/token/ERC721/IERC721Receiver.sol";
 import {IOptionMarketOTMFE} from "../../interfaces/apps/options/IOptionMarketOTMFE.sol";
 import {ISwapper} from "../../interfaces/ISwapper.sol";
+import {IWETH} from "../../interfaces/IWETH.sol";
 
 /// @title MultiSwapRouter
 /// @notice A router contract that facilitates token swaps and options minting
@@ -25,6 +26,14 @@ contract MultiSwapRouter is Multicall, IERC721Receiver {
     event MintOption(
         address user, address receiver, address market, uint256 optionId, bytes32 frontendId, bytes32 referralId
     );
+
+    /// @notice Wraps ETH into WETH
+    /// @param weth The address of the WETH contract
+    /// @param amount The amount of ETH to wrap
+    function wrap(address weth, uint256 amount) external payable {
+        IWETH(weth).deposit{value: amount}();
+        IERC20(weth).safeTransfer(msg.sender, amount);
+    }
 
     /// @notice Executes multiple token swaps through specified swapper contracts
     /// @param swapper Array of swapper contract addresses
@@ -63,7 +72,7 @@ contract MultiSwapRouter is Multicall, IERC721Receiver {
         address callAsset = market.callAsset();
         address putAsset = market.putAsset();
 
-        if (self) {
+        if (!self) {
             if (optionParams.isCall) {
                 IERC20(callAsset).safeTransferFrom(msg.sender, address(this), optionParams.maxCostAllowance);
                 IERC20(callAsset).safeIncreaseAllowance(address(market), optionParams.maxCostAllowance);
