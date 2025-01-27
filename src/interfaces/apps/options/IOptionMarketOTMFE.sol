@@ -150,4 +150,16 @@ interface IOptionMarketOTMFE {
     /// @param id The token ID
     /// @return address The owner of the token
     function ownerOf(uint256 id) external view returns (address);
+
+    /// @notice Returns the address of the call asset
+    /// @return address The address of the call asset
+    function callAsset() external view returns (address);
+
+    /// @notice Returns the address of the put asset
+    /// @return address The address of the put asset
+    function putAsset() external view returns (address);
+
+    /// @notice Returns the option IDs
+    /// @return uint256 The option IDs
+    function optionIds() external view returns (uint256);
 }
