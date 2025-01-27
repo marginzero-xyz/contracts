@@ -75,10 +75,10 @@ contract MultiSwapRouter is Multicall, IERC721Receiver {
         if (!self) {
             if (optionParams.isCall) {
                 IERC20(callAsset).safeTransferFrom(msg.sender, address(this), optionParams.maxCostAllowance);
-                IERC20(callAsset).safeIncreaseAllowance(address(market), optionParams.maxCostAllowance);
+                IERC20(callAsset).approve(address(market), optionParams.maxCostAllowance);
             } else {
                 IERC20(putAsset).safeTransferFrom(msg.sender, address(this), optionParams.maxCostAllowance);
-                IERC20(putAsset).safeIncreaseAllowance(address(market), optionParams.maxCostAllowance);
+                IERC20(putAsset).approve(address(market), optionParams.maxCostAllowance);
             }
         } else {
             if (optionParams.isCall) {
