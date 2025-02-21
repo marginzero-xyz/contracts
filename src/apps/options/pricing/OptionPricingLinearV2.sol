@@ -208,7 +208,7 @@ contract OptionPricingLinearV2 is Ownable {
         view
         returns (uint256)
     {
-        return _getOptionPrice(
+        return _getOptionPriceViaTTL(
             OptionPriceParams({
                 optionsMarket: msg.sender,
                 hook: hook,
@@ -236,7 +236,7 @@ contract OptionPricingLinearV2 is Ownable {
         uint256 strike,
         uint256 lastPrice
     ) external view returns (uint256) {
-        return _getOptionPrice(
+        return _getOptionPriceViaTTL(
             OptionPriceParams({
                 optionsMarket: optionsMarket,
                 hook: hook,
