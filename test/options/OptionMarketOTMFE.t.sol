@@ -134,15 +134,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
             })
         );
 
-        optionPricingLinearV2 = new OptionPricingLinearV2(10_000, 1_000, 10_000_000);
-
-        uint256[] memory ttls = new uint256[](1);
-        uint256[] memory ttlIV = new uint256[](1);
-
-        ttls[0] = 86400;
-        ttlIV[0] = 50;
-
-        optionPricingLinearV2.updateIVs(ttls, ttlIV);
+        optionPricingLinearV2 = new OptionPricingLinearV2();
 
         clammFeeStrategyV2 = new ClammFeeStrategyV2();
 
@@ -157,6 +149,18 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
             address(pool),
             address(poolSpotPrice)
         );
+
+        optionPricingLinearV2.updateVolatilityOffset(address(optionMarketOTMFE), 10_000);
+        optionPricingLinearV2.updateVolatilityMultiplier(address(optionMarketOTMFE), 1_000);
+        optionPricingLinearV2.updateMinOptionPricePercentage(address(optionMarketOTMFE), 10_000_000);
+
+        uint256[] memory ttls = new uint256[](1);
+        uint256[] memory ttlIV = new uint256[](1);
+
+        ttls[0] = 86400;
+        ttlIV[0] = 50;
+
+        optionPricingLinearV2.updateIVs(address(optionMarketOTMFE), ttls, ttlIV);
 
         vm.warp(1729238400);
 

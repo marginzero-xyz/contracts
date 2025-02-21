@@ -495,11 +495,11 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
 
             positionManager.unusePosition(opTick._handler, unusePositionData);
 
-            if (ac.totalProfit > 0) {
-                ac.assetToGet.transfer(msg.sender, ac.totalProfit);
-            }
-
             opTick.liquidityToUse -= liquidityToSettle;
+        }
+
+        if (ac.totalProfit > 0) {
+            ac.assetToGet.transfer(msg.sender, ac.totalProfit);
         }
 
         emit LogSettleOption(ac, _params.liquidityToSettle, ownerOf(_params.optionId), _params.optionId);
