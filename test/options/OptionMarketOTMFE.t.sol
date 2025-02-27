@@ -167,6 +167,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         clammFeeStrategyV2.registerOptionMarket(address(optionMarketOTMFE), 350000);
 
         openSettlement = new OpenSettlement(settler, publicFeeRecipient, 1000, 500);
+        openSettlement.setWhitelistedMarkets(address(optionMarketOTMFE), true);
 
         optionMarketOTMFE.updatePoolApporvals(settler, true, address(pool), true, 86400, 1729065600, true, 10 minutes);
         optionMarketOTMFE.updatePoolApporvals(
@@ -787,7 +788,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         vars.balanceBefore.balance1 = ETH.balanceOf(trader);
         vm.expectRevert(OptionMarketOTMFE.NotOwnerOrDelegator.selector);
         IOptionMarketOTMFE.AssetsCache memory result =
-            openSettlement.openSettle(IOptionMarketOTMFE(address(optionMarketOTMFE)), optionId, settleParams);
+            openSettlement.openSettle(IOptionMarketOTMFE(address(optionMarketOTMFE)), settleParams);
     }
 
     function testExercisePutOption() public {
@@ -1003,7 +1004,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         vars.balanceBefore.balance1 = ETH.balanceOf(trader);
 
         IOptionMarketOTMFE.AssetsCache memory result =
-            openSettlement.openSettle(IOptionMarketOTMFE(address(optionMarketOTMFE)), optionId, settleParams);
+            openSettlement.openSettle(IOptionMarketOTMFE(address(optionMarketOTMFE)), settleParams);
         console.log("result.totalProfit", result.totalProfit);
         console.log("Public Fee Recipient Balance", USDC.balanceOf(openSettlement.publicFeeRecipient()));
         console.log("Settler Balance", USDC.balanceOf(garbage));
@@ -1192,7 +1193,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         vars.balanceBefore.balance1 = ETH.balanceOf(trader);
 
         IOptionMarketOTMFE.AssetsCache memory result =
-            openSettlement.openSettle(IOptionMarketOTMFE(address(optionMarketOTMFE)), optionId, settleParams);
+            openSettlement.openSettle(IOptionMarketOTMFE(address(optionMarketOTMFE)), settleParams);
 
         vars.balanceAfter.balance0 = USDC.balanceOf(trader);
         vars.balanceAfter.balance1 = ETH.balanceOf(trader);
