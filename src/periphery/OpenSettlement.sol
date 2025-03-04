@@ -14,7 +14,6 @@ contract OpenSettlement is Ownable {
     using SafeERC20 for ERC20;
 
     // events
-
     event LogSettleOptionsOpen(
         address indexed market,
         uint256 indexed optionId,
@@ -26,6 +25,8 @@ contract OpenSettlement is Ownable {
     // errors
     /// @notice Thrown when attempting to settle an option that hasn't been settled by the market
     error OptionNotSettled();
+    /// @notice Thrown when attempting to settle an option that is not whitelisted
+    error NotWhitelistedMarket();
 
     /// @notice Fee percentage for whitelisted settlers (in SETTLE_FEE_PRECISION basis points)
     uint256 public settleFeeProtocol;
@@ -41,6 +42,9 @@ contract OpenSettlement is Ownable {
 
     /// @notice Mapping of addresses to their whitelisted settler status
     mapping(address => bool) public isWhitelistedSettler;
+
+    /// @notice Mapping of addresses to their whitelisted market status
+    mapping(address => bool) public isWhitelistedMarket;
 
     /// @notice Constructs the OpenSettlement contract
     /// @param _isWhitelistedSettler Initial whitelisted settler address
@@ -62,14 +66,14 @@ contract OpenSettlement is Ownable {
     /// @notice Settles an option and distributes profits according to the fee structure
     /// @dev Whitelisted settlers pay a lower fee than public settlers
     /// @param market The option market contract
-    /// @param optionId The ID of the option to settle
     /// @param settleParams Parameters required for settlement
     /// @return AssetsCache struct containing settlement results
-    function openSettle(
-        IOptionMarketOTMFE market,
-        uint256 optionId,
-        IOptionMarketOTMFE.SettleOptionParams memory settleParams
-    ) external returns (IOptionMarketOTMFE.AssetsCache memory) {
+    function openSettle(IOptionMarketOTMFE market, IOptionMarketOTMFE.SettleOptionParams memory settleParams)
+        external
+        returns (IOptionMarketOTMFE.AssetsCache memory)
+    {
+        if (!isWhitelistedMarket[address(market)]) revert NotWhitelistedMarket();
+
         (IOptionMarketOTMFE.AssetsCache memory ac) = market.settleOption(settleParams);
 
         if (!ac.isSettle) revert OptionNotSettled();
@@ -82,21 +86,27 @@ contract OpenSettlement is Ownable {
                 if (isWhitelistedSettler[msg.sender]) {
                     feeProtocol = (ac.totalProfit * settleFeeProtocol) / SETTLE_FEE_PRECISION;
                     ac.assetToGet.safeTransfer(publicFeeRecipient, feeProtocol);
-                    ac.assetToGet.safeTransfer(market.ownerOf(optionId), ac.totalProfit - feeProtocol);
+                    ac.assetToGet.safeTransfer(market.ownerOf(settleParams.optionId), ac.totalProfit - feeProtocol);
                 } else {
                     feeProtocol = (ac.totalProfit * (settleFeeProtocol - settleFeePublic)) / SETTLE_FEE_PRECISION;
                     feePublic = (ac.totalProfit * settleFeePublic) / SETTLE_FEE_PRECISION;
                     ac.assetToGet.safeTransfer(publicFeeRecipient, feeProtocol);
                     ac.assetToGet.safeTransfer(msg.sender, feePublic);
-                    ac.assetToGet.safeTransfer(market.ownerOf(optionId), ac.totalProfit - feeProtocol - feePublic);
+                    ac.assetToGet.safeTransfer(
+                        market.ownerOf(settleParams.optionId), ac.totalProfit - feeProtocol - feePublic
+                    );
                 }
 
                 emit LogSettleOptionsOpen(
-                    address(market), optionId, ac.totalProfit - feeProtocol - feePublic, feeProtocol, feePublic
+                    address(market),
+                    settleParams.optionId,
+                    ac.totalProfit - feeProtocol - feePublic,
+                    feeProtocol,
+                    feePublic
                 );
             } else {
-                ac.assetToGet.safeTransfer(market.ownerOf(optionId), ac.totalProfit);
-                emit LogSettleOptionsOpen(address(market), optionId, ac.totalProfit, 0, 0);
+                ac.assetToGet.safeTransfer(market.ownerOf(settleParams.optionId), ac.totalProfit);
+                emit LogSettleOptionsOpen(address(market), settleParams.optionId, ac.totalProfit, 0, 0);
             }
         }
 
@@ -129,5 +139,12 @@ contract OpenSettlement is Ownable {
     /// @param _publicFeeRecipient New fee recipient address
     function setPublicFeeRecipient(address _publicFeeRecipient) external onlyOwner {
         publicFeeRecipient = _publicFeeRecipient;
+    }
+
+    /// @notice Updates the whitelisted status of a market address
+    /// @param _market The market address to update
+    /// @param _isWhitelistedMarket New whitelisted status
+    function setWhitelistedMarkets(address _market, bool _isWhitelistedMarket) external onlyOwner {
+        isWhitelistedMarket[_market] = _isWhitelistedMarket;
     }
 }
