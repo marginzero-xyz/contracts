@@ -256,7 +256,10 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
                 revert NotValidStrikeTick();
             }
 
-            if (_params.tickLower < TickMath.getTickAtSqrtRatio(_getCurrentSqrtPriceX96(opTick.pool)) && _params.tickUpper > TickMath.getTickAtSqrtRatio(_getCurrentSqrtPriceX96(opTick.pool))) {
+            if (
+                _params.tickLower < TickMath.getTickAtSqrtRatio(_getCurrentSqrtPriceX96(opTick.pool))
+                    && _params.tickUpper > TickMath.getTickAtSqrtRatio(_getCurrentSqrtPriceX96(opTick.pool))
+            ) {
                 revert NotValidStrikeTick();
             }
 
@@ -439,7 +442,7 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
 
                     uint256 prevBalance = ac.assetToGet.balanceOf(address(this));
 
-                    if(!approvedSwapper[address(_params.swapper[i])]) {
+                    if (!approvedSwapper[address(_params.swapper[i])]) {
                         revert NotApprovedSwapper();
                     }
 
