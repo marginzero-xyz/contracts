@@ -181,6 +181,8 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
             address(poolSpotPrice)
         );
 
+        optionMarketOTMFE.setApprovedSwapper(address(this), true);
+
         positionManager.updateWhitelistHandlerWithApp(address(handler), address(optionMarketOTMFE), true);
 
         vm.stopPrank();

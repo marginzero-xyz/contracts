@@ -93,6 +93,7 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
         uint256 bufferTime
     );
     event LogUpdatePoolSettings(address feeTo, address tokenURIFetcher, address dpFee, address optionPricing);
+    event LogUpdateApprovedSwapper(address swapper, bool status);
 
     // Errors
     error MaxOptionBuyReached();
@@ -109,6 +110,7 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
     error InBUFFER_TIME();
     error Expired();
     error TTLNotSet();
+    error NotApprovedSwapper();
 
     /// @notice Counter for option IDs
     uint256 public optionIds;
@@ -159,6 +161,8 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
     mapping(uint256 => bool) public approvedTTLs;
     /// @notice Mapping of TTL to start time
     mapping(uint256 => uint256) public ttlStartTime;
+    /// @notice Mapping of swapper address to approval status
+    mapping(address => bool) public approvedSwapper;
 
     /// @notice Constructor for the OptionMarketOTM_Fixed_Expiry_V1 contract
     /// @param _pm Address of the position manager
@@ -249,6 +253,10 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
         for (uint256 i; i < _params.optionTicks.length; i++) {
             opTick = _params.optionTicks[i];
             if (_params.isCall ? _params.tickUpper != opTick.tickUpper : _params.tickLower != opTick.tickLower) {
+                revert NotValidStrikeTick();
+            }
+
+            if (_params.tickLower < TickMath.getTickAtSqrtRatio(_getCurrentSqrtPriceX96(opTick.pool)) && _params.tickUpper > TickMath.getTickAtSqrtRatio(_getCurrentSqrtPriceX96(opTick.pool))) {
                 revert NotValidStrikeTick();
             }
 
@@ -430,6 +438,10 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
                     ac.totalAssetRelocked += amountToSwap;
 
                     uint256 prevBalance = ac.assetToGet.balanceOf(address(this));
+
+                    if(!approvedSwapper[address(_params.swapper[i])]) {
+                        revert NotApprovedSwapper();
+                    }
 
                     ac.assetToUse.transfer(address(_params.swapper[i]), amountToSwap);
 
@@ -712,6 +724,11 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
         optionPricing = IOptionPricingV2(_optionPricing);
         verifiedSpotPrice = IVerifiedSpotPrice(_verifiedSpotPrice);
         emit LogUpdatePoolSettings(_feeTo, _tokenURIFetcher, _dpFee, _optionPricing);
+    }
+
+    function setApprovedSwapper(address swapper, bool status) external onlyOwner {
+        approvedSwapper[swapper] = status;
+        emit LogUpdateApprovedSwapper(swapper, status);
     }
 
     /// @notice Emergency withdraw function
