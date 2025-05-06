@@ -418,7 +418,13 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
                 uint128(liquidityToSettle)
             );
 
-            if ((amount0 > 0 && amount1 == 0) || (amount1 > 0 && amount0 == 0)) {
+            if (
+                ((amount0 > 0 && amount1 == 0) || (amount1 > 0 && amount0 == 0))
+                    && !(
+                        opTick.tickLower < TickMath.getTickAtSqrtRatio(_getCurrentSqrtPriceX96(opTick.pool))
+                            && opTick.tickUpper > TickMath.getTickAtSqrtRatio(_getCurrentSqrtPriceX96(opTick.pool))
+                    )
+            ) {
                 if (isAmount0 && amount0 > 0 && ac.isSettle == true) {
                     ac.assetToUse.approve(address(positionManager), amount0);
                     ac.totalAssetRelocked += amount0;
