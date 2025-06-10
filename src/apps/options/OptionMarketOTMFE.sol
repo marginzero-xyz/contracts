@@ -113,6 +113,7 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
     error TTLNotSet();
     error NotApprovedSwapper();
     error NotApprovedHook();
+    error MinLiquidityToUse();
 
     /// @notice Counter for option IDs
     uint256 public optionIds;
@@ -151,6 +152,14 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
 
     /// @notice Maximum tick difference
     uint24 public maxTickDiff;
+
+    /// @notice Maximum upper tick
+    int24 maxUpperTick;
+    /// @notice Minimum lower tick
+    int24 minLowerTick;
+
+    /// @notice Minimum liquidity to use
+    uint128 minLiquidityToUse;
 
     /// @notice Mapping of option ID to option data
     mapping(uint256 => OptionData) public opData;
@@ -242,6 +251,10 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
             revert NotApprovedTTL();
         }
 
+        if (_params.tickUpper > maxUpperTick || _params.tickLower < minLowerTick) {
+            revert NotValidStrikeTick();
+        }
+
         uint256 expiry = block.timestamp + (_params.ttl - ((block.timestamp - ttlStartTime[_params.ttl]) % _params.ttl));
 
         if (expiry - block.timestamp > _params.ttl - BUFFER_TIME) {
@@ -304,6 +317,10 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
 
             if (!approvedHooks[opTick.hook]) {
                 revert NotApprovedHook();
+            }
+
+            if (opTick.liquidityToUse < minLiquidityToUse) {
+                revert MinLiquidityToUse();
             }
 
             bytes memory usePositionData = abi.encode(
@@ -761,7 +778,10 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
         address _dpFee,
         address _optionPricing,
         address _verifiedSpotPrice,
-        uint24 _maxTickDiff
+        uint24 _maxTickDiff,
+        int24 _maxUpperTick,
+        int24 _minLowerTick,
+        uint128 _minLiquidityToUse
     ) external onlyOwner {
         feeTo = _feeTo;
         tokenURIFetcher = _tokenURIFetcher;
@@ -769,6 +789,9 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
         optionPricing = IOptionPricingV2(_optionPricing);
         verifiedSpotPrice = IVerifiedSpotPrice(_verifiedSpotPrice);
         maxTickDiff = _maxTickDiff;
+        maxUpperTick = _maxUpperTick;
+        minLowerTick = _minLowerTick;
+        minLiquidityToUse = _minLiquidityToUse;
         emit LogUpdatePoolSettings(_feeTo, _tokenURIFetcher, _dpFee, _optionPricing);
     }
 

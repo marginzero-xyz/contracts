@@ -179,7 +179,10 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
             address(clammFeeStrategyV2),
             address(optionPricingLinearV2),
             address(poolSpotPrice),
-            100
+            100,
+            887272,
+            -887272,
+            0
         );
 
         optionMarketOTMFE.setApprovedSwapperAndHook(address(this), true, address(mockHook), true);
@@ -251,6 +254,8 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
 
         // Get current price and tick
         (vars.sqrtPriceX96, vars.currentTick,,,,,) = pool.slot0();
+
+        console.log("currentTick", vars.currentTick);
 
         // Calculate tick range
         int24 tickSpacing = pool.tickSpacing();
