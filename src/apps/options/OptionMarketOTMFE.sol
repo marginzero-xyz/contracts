@@ -261,7 +261,7 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
                     opTick.tickLower < TickMath.getTickAtSqrtRatio(_getCurrentSqrtPriceX96(opTick.pool))
                         && opTick.tickUpper > TickMath.getTickAtSqrtRatio(_getCurrentSqrtPriceX96(opTick.pool))
                 )
-                    && (
+                    || (
                         TickMath.getSqrtRatioAtTick(opTick.tickLower) < _getCurrentSqrtPriceX96(opTick.pool)
                             && TickMath.getSqrtRatioAtTick(opTick.tickUpper) > _getCurrentSqrtPriceX96(opTick.pool)
                     )
@@ -427,14 +427,14 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
             if (
                 ((amount0 > 0 && amount1 == 0) || (amount1 > 0 && amount0 == 0))
                     && !(
-                        opTick.tickLower < TickMath.getTickAtSqrtRatio(_getCurrentSqrtPriceX96(opTick.pool))
-                            && opTick.tickUpper > TickMath.getTickAtSqrtRatio(_getCurrentSqrtPriceX96(opTick.pool))
-                    )
-                    && !(
                         (
-                            TickMath.getSqrtRatioAtTick(opTick.tickLower) < _getCurrentSqrtPriceX96(opTick.pool)
-                                && TickMath.getSqrtRatioAtTick(opTick.tickUpper) > _getCurrentSqrtPriceX96(opTick.pool)
+                            opTick.tickLower < TickMath.getTickAtSqrtRatio(_getCurrentSqrtPriceX96(opTick.pool))
+                                && opTick.tickUpper > TickMath.getTickAtSqrtRatio(_getCurrentSqrtPriceX96(opTick.pool))
                         )
+                            || (
+                                TickMath.getSqrtRatioAtTick(opTick.tickLower) < _getCurrentSqrtPriceX96(opTick.pool)
+                                    && TickMath.getSqrtRatioAtTick(opTick.tickUpper) > _getCurrentSqrtPriceX96(opTick.pool)
+                            )
                     )
             ) {
                 if (isAmount0 && amount0 > 0 && ac.isSettle == true) {
