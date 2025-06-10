@@ -591,7 +591,7 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
             revert ArrayLenMismatch();
         }
 
-        if (oData.expiry < block.timestamp) {
+        if (oData.expiry <= block.timestamp) {
             revert Expired();
         }
 
