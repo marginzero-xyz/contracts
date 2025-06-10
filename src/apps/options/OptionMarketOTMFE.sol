@@ -12,6 +12,7 @@ import {IVerifiedSpotPrice} from "../../interfaces/IVerifiedSpotPrice.sol";
 
 import {ERC721} from "../../libraries/tokens/ERC721.sol";
 import {ERC20} from "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
+import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
 import {ReentrancyGuard} from "openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
 import {Multicall} from "openzeppelin-contracts/contracts/utils/Multicall.sol";
@@ -27,6 +28,7 @@ import {FullMath} from "@uniswap/v3-core/contracts/libraries/FullMath.sol";
 /// @dev Inherits from ReentrancyGuard, Multicall, Ownable, and ERC721
 contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
     using TickMath for int24;
+    using SafeERC20 for ERC20;
 
     /// @notice Struct to store option data
     struct OptionData {
@@ -373,15 +375,15 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
         uint256 protocolFees;
         if (feeTo != address(0)) {
             protocolFees = getFee(totalAssetWithdrawn, premiumAmount);
-            ERC20(assetToUse).transferFrom(msg.sender, feeTo, protocolFees);
+            ERC20(assetToUse).safeTransferFrom(msg.sender, feeTo, protocolFees);
         }
 
         if (premiumAmount + protocolFees > _params.maxCostAllowance) {
             revert MaxCostAllowanceExceeded();
         }
 
-        ERC20(assetToUse).transferFrom(msg.sender, address(this), premiumAmount);
-        ERC20(assetToUse).approve(address(positionManager), premiumAmount);
+        ERC20(assetToUse).safeTransferFrom(msg.sender, address(this), premiumAmount);
+        ERC20(assetToUse).safeIncreaseAllowance(address(positionManager), premiumAmount);
 
         for (uint256 i; i < _params.optionTicks.length; i++) {
             opTick = _params.optionTicks[i];
@@ -477,10 +479,10 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
                     )
             ) {
                 if (isAmount0 && amount0 > 0 && ac.isSettle == true) {
-                    ac.assetToUse.approve(address(positionManager), amount0);
+                    ac.assetToUse.safeIncreaseAllowance(address(positionManager), amount0);
                     ac.totalAssetRelocked += amount0;
                 } else if (!isAmount0 && amount1 > 0 && ac.isSettle == true) {
-                    ac.assetToUse.approve(address(positionManager), amount1);
+                    ac.assetToUse.safeIncreaseAllowance(address(positionManager), amount1);
                     ac.totalAssetRelocked += amount1;
                 } else {
                     uint256 amountToSwap = isAmount0
@@ -527,14 +529,14 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
                         revert NotEnoughAfterSwap();
                     }
 
-                    ac.assetToGet.approve(address(positionManager), amountReq);
+                    ac.assetToGet.safeIncreaseAllowance(address(positionManager), amountReq);
 
                     ac.totalProfit += currentBalance - (prevBalance + amountReq);
                 }
             } else {
                 if (isAmount0 && ac.isSettle == true) {
-                    ac.assetToUse.approve(address(positionManager), amount0);
-                    ac.assetToGet.approve(address(positionManager), amount1);
+                    ac.assetToUse.safeIncreaseAllowance(address(positionManager), amount0);
+                    ac.assetToGet.safeIncreaseAllowance(address(positionManager), amount1);
 
                     uint256 actualAmount0 = LiquidityAmounts.getAmount0ForLiquidity(
                         opTick.tickLower.getSqrtRatioAtTick(),
@@ -542,12 +544,12 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
                         uint128(liquidityToSettle)
                     );
 
-                    ac.assetToGet.transferFrom(msg.sender, address(this), amount1);
+                    ac.assetToGet.safeTransferFrom(msg.sender, address(this), amount1);
 
-                    ac.assetToUse.transfer(msg.sender, actualAmount0 - amount0);
+                    ac.assetToUse.safeTransfer(msg.sender, actualAmount0 - amount0);
                 } else if (!isAmount0 && ac.isSettle == true) {
-                    ac.assetToUse.approve(address(positionManager), amount1);
-                    ac.assetToGet.approve(address(positionManager), amount0);
+                    ac.assetToUse.safeIncreaseAllowance(address(positionManager), amount1);
+                    ac.assetToGet.safeIncreaseAllowance(address(positionManager), amount0);
 
                     uint256 actualAmount1 = LiquidityAmounts.getAmount1ForLiquidity(
                         opTick.tickLower.getSqrtRatioAtTick(),
@@ -555,9 +557,9 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
                         uint128(liquidityToSettle)
                     );
 
-                    ac.assetToGet.transferFrom(msg.sender, address(this), amount0);
+                    ac.assetToGet.safeTransferFrom(msg.sender, address(this), amount0);
 
-                    ac.assetToUse.transfer(msg.sender, actualAmount1 - amount1);
+                    ac.assetToUse.safeTransfer(msg.sender, actualAmount1 - amount1);
                 }
             }
 
@@ -808,6 +810,6 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
     /// @notice Emergency withdraw function
     /// @param token The token address to withdraw
     function emergencyWithdraw(address token) external onlyOwner {
-        ERC20(token).transfer(msg.sender, ERC20(token).balanceOf(address(this)));
+        ERC20(token).safeTransfer(msg.sender, ERC20(token).balanceOf(address(this)));
     }
 }
