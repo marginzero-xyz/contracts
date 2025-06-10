@@ -94,6 +94,7 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
     );
     event LogUpdatePoolSettings(address feeTo, address tokenURIFetcher, address dpFee, address optionPricing);
     event LogUpdateApprovedSwapper(address swapper, bool status);
+    event LogUpdateApprovedHook(address hook, bool status);
 
     // Errors
     error MaxOptionBuyReached();
@@ -111,6 +112,7 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
     error Expired();
     error TTLNotSet();
     error NotApprovedSwapper();
+    error NotApprovedHook();
 
     /// @notice Counter for option IDs
     uint256 public optionIds;
@@ -147,6 +149,9 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
     /// @notice Decimals of the put asset
     uint8 public immutable putAssetDecimals;
 
+    /// @notice Maximum tick difference
+    uint24 public maxTickDiff;
+
     /// @notice Mapping of option ID to option data
     mapping(uint256 => OptionData) public opData;
     /// @notice Mapping of option ID to option ticks
@@ -163,6 +168,8 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
     mapping(uint256 => uint256) public ttlStartTime;
     /// @notice Mapping of swapper address to approval status
     mapping(address => bool) public approvedSwapper;
+    /// @notice Mapping of approved hooks
+    mapping(address => bool) public approvedHooks;
 
     /// @notice Constructor for the OptionMarketOTM_Fixed_Expiry_V1 contract
     /// @param _pm Address of the position manager
@@ -252,8 +259,19 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
 
         for (uint256 i; i < _params.optionTicks.length; i++) {
             opTick = _params.optionTicks[i];
-            if (_params.tickUpper != opTick.tickUpper || _params.tickLower != opTick.tickLower) {
+
+            if ((_params.tickUpper != opTick.tickUpper || _params.tickLower != opTick.tickLower)) {
                 revert NotValidStrikeTick();
+            }
+
+            if (opTick.tickUpper > 0 && opTick.tickLower > 0 || opTick.tickUpper < 0 && opTick.tickLower < 0) {
+                if (uint24(opTick.tickUpper - opTick.tickLower) > maxTickDiff) {
+                    revert NotValidStrikeTick();
+                }
+            } else {
+                if (uint24(opTick.tickUpper + opTick.tickLower) > maxTickDiff) {
+                    revert NotValidStrikeTick();
+                }
             }
 
             if (
@@ -282,6 +300,10 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
 
             if (!approvedPools[address(opTick.pool)]) {
                 revert PoolNotApproved();
+            }
+
+            if (!approvedHooks[opTick.hook]) {
+                revert NotApprovedHook();
             }
 
             bytes memory usePositionData = abi.encode(
@@ -732,24 +754,32 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
     /// @param _dpFee The fee strategy address
     /// @param _optionPricing The option pricing address
     /// @param _verifiedSpotPrice The verified spot price address
+    /// @param _maxTickDiff The maximum tick difference
     function updatePoolSettings(
         address _feeTo,
         address _tokenURIFetcher,
         address _dpFee,
         address _optionPricing,
-        address _verifiedSpotPrice
+        address _verifiedSpotPrice,
+        uint24 _maxTickDiff
     ) external onlyOwner {
         feeTo = _feeTo;
         tokenURIFetcher = _tokenURIFetcher;
         dpFee = IClammFeeStrategyV2(_dpFee);
         optionPricing = IOptionPricingV2(_optionPricing);
         verifiedSpotPrice = IVerifiedSpotPrice(_verifiedSpotPrice);
+        maxTickDiff = _maxTickDiff;
         emit LogUpdatePoolSettings(_feeTo, _tokenURIFetcher, _dpFee, _optionPricing);
     }
 
-    function setApprovedSwapper(address swapper, bool status) external onlyOwner {
-        approvedSwapper[swapper] = status;
-        emit LogUpdateApprovedSwapper(swapper, status);
+    function setApprovedSwapperAndHook(address swapper, bool statusSwapper, address hook, bool statusHook)
+        external
+        onlyOwner
+    {
+        approvedSwapper[swapper] = statusSwapper;
+        approvedHooks[hook] = statusHook;
+        emit LogUpdateApprovedSwapper(swapper, statusSwapper);
+        emit LogUpdateApprovedHook(hook, statusHook);
     }
 
     /// @notice Emergency withdraw function

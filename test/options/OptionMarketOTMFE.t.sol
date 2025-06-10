@@ -178,10 +178,11 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
             address(0),
             address(clammFeeStrategyV2),
             address(optionPricingLinearV2),
-            address(poolSpotPrice)
+            address(poolSpotPrice),
+            100
         );
 
-        optionMarketOTMFE.setApprovedSwapper(address(this), true);
+        optionMarketOTMFE.setApprovedSwapperAndHook(address(this), true, address(mockHook), true);
 
         positionManager.updateWhitelistHandlerWithApp(address(handler), address(optionMarketOTMFE), true);
 
