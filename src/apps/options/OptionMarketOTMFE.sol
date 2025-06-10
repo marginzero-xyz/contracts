@@ -257,8 +257,14 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
             }
 
             if (
-                _params.tickLower < TickMath.getTickAtSqrtRatio(_getCurrentSqrtPriceX96(opTick.pool))
-                    && _params.tickUpper > TickMath.getTickAtSqrtRatio(_getCurrentSqrtPriceX96(opTick.pool))
+                (
+                    opTick.tickLower < TickMath.getTickAtSqrtRatio(_getCurrentSqrtPriceX96(opTick.pool))
+                        && opTick.tickUpper > TickMath.getTickAtSqrtRatio(_getCurrentSqrtPriceX96(opTick.pool))
+                )
+                    && (
+                        TickMath.getSqrtRatioAtTick(opTick.tickLower) < _getCurrentSqrtPriceX96(opTick.pool)
+                            && TickMath.getSqrtRatioAtTick(opTick.tickUpper) > _getCurrentSqrtPriceX96(opTick.pool)
+                    )
             ) {
                 revert NotValidStrikeTick();
             }
@@ -423,6 +429,12 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
                     && !(
                         opTick.tickLower < TickMath.getTickAtSqrtRatio(_getCurrentSqrtPriceX96(opTick.pool))
                             && opTick.tickUpper > TickMath.getTickAtSqrtRatio(_getCurrentSqrtPriceX96(opTick.pool))
+                    )
+                    && !(
+                        (
+                            TickMath.getSqrtRatioAtTick(opTick.tickLower) < _getCurrentSqrtPriceX96(opTick.pool)
+                                && TickMath.getSqrtRatioAtTick(opTick.tickUpper) > _getCurrentSqrtPriceX96(opTick.pool)
+                        )
                     )
             ) {
                 if (isAmount0 && amount0 > 0 && ac.isSettle == true) {
