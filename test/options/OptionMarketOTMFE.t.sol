@@ -172,6 +172,9 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         optionMarketOTMFE.updatePoolApporvals(
             address(openSettlement), true, address(pool), true, 86400, 1729065600, true, 10 minutes
         );
+        optionMarketOTMFE.updatePoolApporvals(
+            address(trader), true, address(pool), true, 86400, 1729065600, true, 10 minutes
+        );
 
         optionMarketOTMFE.updatePoolSettings(
             address(feeReceiver),
@@ -740,64 +743,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         assertEq(result.totalProfit, expectedProfit, "Profit should be close to expected");
         assertApproxEqRel(result.totalProfit, expectedProfit, 1e16, "Profit should be close to expected");
     }
-
-    function testExerciseCallOptionOpenSettlement() public {
-        // Setup: Buy a call option
-        testBuyCallOption();
-
-        TestVars memory vars;
-        (vars.sqrtPriceX96, vars.currentTick,,,,,) = pool.slot0();
-        int24 tickSpacing = pool.tickSpacing();
-        vars.tickUpper = ((vars.currentTick / tickSpacing) * tickSpacing) - tickSpacing;
-        vars.tickLower = vars.tickUpper - 1 * tickSpacing;
-
-        // Warp time to just before expiry
-        vm.warp(block.timestamp + 85200); // 10 minutes before
-
-        // price increase
-        uint256 swapAmount = 10000e6; // 50,000 USDC
-        vm.startPrank(address(this));
-        USDC.mint(address(this), swapAmount);
-        USDC.approve(address(pool), swapAmount);
-
-        pool.swap(
-            address(0xD3AD),
-            true,
-            int256(swapAmount),
-            TickMath.MIN_SQRT_RATIO + 1, // Swap to the upper tick
-            abi.encode(address(this))
-        );
-
-        vm.stopPrank();
-
-        // Prepare for exercise
-        uint256 optionId = 1; // Assuming this is the first option minted
-        uint256[] memory liquidityToSettle = new uint256[](1);
-        (,,,,, uint256 liquidityToUse) = optionMarketOTMFE.opTickMap(optionId, 0);
-        liquidityToSettle[0] = liquidityToUse;
-
-        ISwapper[] memory swappers = new ISwapper[](1);
-        swappers[0] = ISwapper(address(this));
-
-        bytes[] memory swapData = new bytes[](1);
-        swapData[0] = ""; // No swap data needed
-
-        IOptionMarketOTMFE.SettleOptionParams memory settleParams = IOptionMarketOTMFE.SettleOptionParams({
-            optionId: optionId,
-            swapper: swappers,
-            swapData: swapData,
-            liquidityToSettle: liquidityToSettle
-        });
-
-        // Exercise the option
-        vm.startPrank(trader);
-        vars.balanceBefore.balance0 = USDC.balanceOf(trader);
-        vars.balanceBefore.balance1 = ETH.balanceOf(trader);
-        vm.expectRevert(OptionMarketOTMFE.NotOwnerOrDelegator.selector);
-        IOptionMarketOTMFE.AssetsCache memory result =
-            openSettlement.openSettle(IOptionMarketOTMFE(address(optionMarketOTMFE)), optionId, settleParams);
-    }
-
+    
     function testExercisePutOption() public {
         // Setup: Buy a put option
         testBuyPutOption();

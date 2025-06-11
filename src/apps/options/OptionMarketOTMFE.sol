@@ -167,8 +167,6 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
     mapping(uint256 => OptionData) public opData;
     /// @notice Mapping of option ID to option ticks
     mapping(uint256 => OptionTicks[]) public opTickMap;
-    /// @notice Mapping of owner to delegate to exercise status
-    mapping(address => mapping(address => bool)) public exerciseDelegator;
     /// @notice Mapping of pool address to approval status
     mapping(address => bool) public approvedPools;
     /// @notice Mapping of settler address to approval status
@@ -433,17 +431,12 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
             revert ArrayLenMismatch();
         }
 
+        if (!settlers[msg.sender]) {
+            revert NotApprovedSettler();
+        }
+
         if (block.timestamp >= oData.expiry) {
             ac.isSettle = true;
-
-            if (!settlers[msg.sender]) {
-                revert NotApprovedSettler();
-            }
-        } else {
-            if (
-                ownerOf(_params.optionId) != msg.sender
-                    && exerciseDelegator[ownerOf(_params.optionId)][msg.sender] == false
-            ) revert NotOwnerOrDelegator();
         }
 
         bool isAmount0 = oData.isCall ? primePool.token0() == callAsset : primePool.token0() == putAsset;
@@ -624,14 +617,6 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
         _safeMint(_params.to, optionIds);
 
         emit LogSplitOption(_params, optionIds, ownerOf(_params.optionId));
-    }
-
-    /// @notice Updates the exercise delegate for the caller
-    /// @param _delegateTo The address to delegate to
-    /// @param _status The delegation status
-    function updateExerciseDelegate(address _delegateTo, bool _status) external {
-        exerciseDelegator[msg.sender][_delegateTo] = _status;
-        emit LogUpdateExerciseDelegate(msg.sender, _delegateTo, _status);
     }
 
     /// @notice Gets the price per call asset via a specific tick
