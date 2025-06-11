@@ -743,7 +743,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         assertEq(result.totalProfit, expectedProfit, "Profit should be close to expected");
         assertApproxEqRel(result.totalProfit, expectedProfit, 1e16, "Profit should be close to expected");
     }
-    
+
     function testExercisePutOption() public {
         // Setup: Buy a put option
         testBuyPutOption();
