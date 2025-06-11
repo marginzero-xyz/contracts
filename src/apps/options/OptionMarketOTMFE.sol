@@ -12,6 +12,7 @@ import {IVerifiedSpotPrice} from "../../interfaces/IVerifiedSpotPrice.sol";
 
 import {ERC721} from "../../libraries/tokens/ERC721.sol";
 import {ERC20} from "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
+import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
 import {ReentrancyGuard} from "openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
 import {Multicall} from "openzeppelin-contracts/contracts/utils/Multicall.sol";
@@ -27,6 +28,7 @@ import {FullMath} from "@uniswap/v3-core/contracts/libraries/FullMath.sol";
 /// @dev Inherits from ReentrancyGuard, Multicall, Ownable, and ERC721
 contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
     using TickMath for int24;
+    using SafeERC20 for ERC20;
 
     /// @notice Struct to store option data
     struct OptionData {
@@ -93,6 +95,8 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
         uint256 bufferTime
     );
     event LogUpdatePoolSettings(address feeTo, address tokenURIFetcher, address dpFee, address optionPricing);
+    event LogUpdateApprovedSwapper(address swapper, bool status);
+    event LogUpdateApprovedHook(address hook, bool status);
 
     // Errors
     error MaxOptionBuyReached();
@@ -109,6 +113,9 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
     error InBUFFER_TIME();
     error Expired();
     error TTLNotSet();
+    error NotApprovedSwapper();
+    error NotApprovedHook();
+    error MinLiquidityToUse();
 
     /// @notice Counter for option IDs
     uint256 public optionIds;
@@ -145,12 +152,21 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
     /// @notice Decimals of the put asset
     uint8 public immutable putAssetDecimals;
 
+    /// @notice Maximum tick difference
+    uint24 public maxTickDiff;
+
+    /// @notice Maximum upper tick
+    int24 maxUpperTick;
+    /// @notice Minimum lower tick
+    int24 minLowerTick;
+
+    /// @notice Minimum liquidity to use
+    uint128 minLiquidityToUse;
+
     /// @notice Mapping of option ID to option data
     mapping(uint256 => OptionData) public opData;
     /// @notice Mapping of option ID to option ticks
     mapping(uint256 => OptionTicks[]) public opTickMap;
-    /// @notice Mapping of owner to delegate to exercise status
-    mapping(address => mapping(address => bool)) public exerciseDelegator;
     /// @notice Mapping of pool address to approval status
     mapping(address => bool) public approvedPools;
     /// @notice Mapping of settler address to approval status
@@ -159,6 +175,10 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
     mapping(uint256 => bool) public approvedTTLs;
     /// @notice Mapping of TTL to start time
     mapping(uint256 => uint256) public ttlStartTime;
+    /// @notice Mapping of swapper address to approval status
+    mapping(address => bool) public approvedSwapper;
+    /// @notice Mapping of approved hooks
+    mapping(address => bool) public approvedHooks;
 
     /// @notice Constructor for the OptionMarketOTM_Fixed_Expiry_V1 contract
     /// @param _pm Address of the position manager
@@ -231,6 +251,10 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
             revert NotApprovedTTL();
         }
 
+        if (_params.tickUpper > maxUpperTick || _params.tickLower < minLowerTick) {
+            revert NotValidStrikeTick();
+        }
+
         uint256 expiry = block.timestamp + (_params.ttl - ((block.timestamp - ttlStartTime[_params.ttl]) % _params.ttl));
 
         if (expiry - block.timestamp > _params.ttl - BUFFER_TIME) {
@@ -248,7 +272,31 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
 
         for (uint256 i; i < _params.optionTicks.length; i++) {
             opTick = _params.optionTicks[i];
-            if (_params.isCall ? _params.tickUpper != opTick.tickUpper : _params.tickLower != opTick.tickLower) {
+
+            if ((_params.tickUpper != opTick.tickUpper || _params.tickLower != opTick.tickLower)) {
+                revert NotValidStrikeTick();
+            }
+
+            if (opTick.tickUpper > 0 && opTick.tickLower > 0 || opTick.tickUpper < 0 && opTick.tickLower < 0) {
+                if (uint24(opTick.tickUpper - opTick.tickLower) > maxTickDiff) {
+                    revert NotValidStrikeTick();
+                }
+            } else {
+                if (uint24(opTick.tickUpper + opTick.tickLower) > maxTickDiff) {
+                    revert NotValidStrikeTick();
+                }
+            }
+
+            if (
+                (
+                    opTick.tickLower < TickMath.getTickAtSqrtRatio(_getCurrentSqrtPriceX96(opTick.pool))
+                        && opTick.tickUpper > TickMath.getTickAtSqrtRatio(_getCurrentSqrtPriceX96(opTick.pool))
+                )
+                    || (
+                        TickMath.getSqrtRatioAtTick(opTick.tickLower) < _getCurrentSqrtPriceX96(opTick.pool)
+                            && TickMath.getSqrtRatioAtTick(opTick.tickUpper) > _getCurrentSqrtPriceX96(opTick.pool)
+                    )
+            ) {
                 revert NotValidStrikeTick();
             }
 
@@ -265,6 +313,14 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
 
             if (!approvedPools[address(opTick.pool)]) {
                 revert PoolNotApproved();
+            }
+
+            if (!approvedHooks[opTick.hook]) {
+                revert NotApprovedHook();
+            }
+
+            if (opTick.liquidityToUse < minLiquidityToUse) {
+                revert MinLiquidityToUse();
             }
 
             bytes memory usePositionData = abi.encode(
@@ -317,15 +373,15 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
         uint256 protocolFees;
         if (feeTo != address(0)) {
             protocolFees = getFee(totalAssetWithdrawn, premiumAmount);
-            ERC20(assetToUse).transferFrom(msg.sender, feeTo, protocolFees);
+            ERC20(assetToUse).safeTransferFrom(msg.sender, feeTo, protocolFees);
         }
 
         if (premiumAmount + protocolFees > _params.maxCostAllowance) {
             revert MaxCostAllowanceExceeded();
         }
 
-        ERC20(assetToUse).transferFrom(msg.sender, address(this), premiumAmount);
-        ERC20(assetToUse).approve(address(positionManager), premiumAmount);
+        ERC20(assetToUse).safeTransferFrom(msg.sender, address(this), premiumAmount);
+        ERC20(assetToUse).safeIncreaseAllowance(address(positionManager), premiumAmount);
 
         for (uint256 i; i < _params.optionTicks.length; i++) {
             opTick = _params.optionTicks[i];
@@ -375,17 +431,12 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
             revert ArrayLenMismatch();
         }
 
+        if (!settlers[msg.sender]) {
+            revert NotApprovedSettler();
+        }
+
         if (block.timestamp >= oData.expiry) {
             ac.isSettle = true;
-
-            if (!settlers[msg.sender]) {
-                revert NotApprovedSettler();
-            }
-        } else {
-            if (
-                ownerOf(_params.optionId) != msg.sender
-                    && exerciseDelegator[ownerOf(_params.optionId)][msg.sender] == false
-            ) revert NotOwnerOrDelegator();
         }
 
         bool isAmount0 = oData.isCall ? primePool.token0() == callAsset : primePool.token0() == putAsset;
@@ -407,12 +458,24 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
                 uint128(liquidityToSettle)
             );
 
-            if ((amount0 > 0 && amount1 == 0) || (amount1 > 0 && amount0 == 0)) {
+            if (
+                ((amount0 > 0 && amount1 == 0) || (amount1 > 0 && amount0 == 0))
+                    && !(
+                        (
+                            opTick.tickLower < TickMath.getTickAtSqrtRatio(_getCurrentSqrtPriceX96(opTick.pool))
+                                && opTick.tickUpper > TickMath.getTickAtSqrtRatio(_getCurrentSqrtPriceX96(opTick.pool))
+                        )
+                            || (
+                                TickMath.getSqrtRatioAtTick(opTick.tickLower) < _getCurrentSqrtPriceX96(opTick.pool)
+                                    && TickMath.getSqrtRatioAtTick(opTick.tickUpper) > _getCurrentSqrtPriceX96(opTick.pool)
+                            )
+                    )
+            ) {
                 if (isAmount0 && amount0 > 0 && ac.isSettle == true) {
-                    ac.assetToUse.approve(address(positionManager), amount0);
+                    ac.assetToUse.safeIncreaseAllowance(address(positionManager), amount0);
                     ac.totalAssetRelocked += amount0;
                 } else if (!isAmount0 && amount1 > 0 && ac.isSettle == true) {
-                    ac.assetToUse.approve(address(positionManager), amount1);
+                    ac.assetToUse.safeIncreaseAllowance(address(positionManager), amount1);
                     ac.totalAssetRelocked += amount1;
                 } else {
                     uint256 amountToSwap = isAmount0
@@ -430,6 +493,10 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
                     ac.totalAssetRelocked += amountToSwap;
 
                     uint256 prevBalance = ac.assetToGet.balanceOf(address(this));
+
+                    if (!approvedSwapper[address(_params.swapper[i])]) {
+                        revert NotApprovedSwapper();
+                    }
 
                     ac.assetToUse.transfer(address(_params.swapper[i]), amountToSwap);
 
@@ -455,14 +522,14 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
                         revert NotEnoughAfterSwap();
                     }
 
-                    ac.assetToGet.approve(address(positionManager), amountReq);
+                    ac.assetToGet.safeIncreaseAllowance(address(positionManager), amountReq);
 
                     ac.totalProfit += currentBalance - (prevBalance + amountReq);
                 }
             } else {
                 if (isAmount0 && ac.isSettle == true) {
-                    ac.assetToUse.approve(address(positionManager), amount0);
-                    ac.assetToGet.approve(address(positionManager), amount1);
+                    ac.assetToUse.safeIncreaseAllowance(address(positionManager), amount0);
+                    ac.assetToGet.safeIncreaseAllowance(address(positionManager), amount1);
 
                     uint256 actualAmount0 = LiquidityAmounts.getAmount0ForLiquidity(
                         opTick.tickLower.getSqrtRatioAtTick(),
@@ -470,12 +537,12 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
                         uint128(liquidityToSettle)
                     );
 
-                    ac.assetToGet.transferFrom(msg.sender, address(this), amount1);
+                    ac.assetToGet.safeTransferFrom(msg.sender, address(this), amount1);
 
-                    ac.assetToUse.transfer(msg.sender, actualAmount0 - amount0);
+                    ac.assetToUse.safeTransfer(msg.sender, actualAmount0 - amount0);
                 } else if (!isAmount0 && ac.isSettle == true) {
-                    ac.assetToUse.approve(address(positionManager), amount1);
-                    ac.assetToGet.approve(address(positionManager), amount0);
+                    ac.assetToUse.safeIncreaseAllowance(address(positionManager), amount1);
+                    ac.assetToGet.safeIncreaseAllowance(address(positionManager), amount0);
 
                     uint256 actualAmount1 = LiquidityAmounts.getAmount1ForLiquidity(
                         opTick.tickLower.getSqrtRatioAtTick(),
@@ -483,9 +550,9 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
                         uint128(liquidityToSettle)
                     );
 
-                    ac.assetToGet.transferFrom(msg.sender, address(this), amount0);
+                    ac.assetToGet.safeTransferFrom(msg.sender, address(this), amount0);
 
-                    ac.assetToUse.transfer(msg.sender, actualAmount1 - amount1);
+                    ac.assetToUse.safeTransfer(msg.sender, actualAmount1 - amount1);
                 }
             }
 
@@ -519,7 +586,7 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
             revert ArrayLenMismatch();
         }
 
-        if (oData.expiry < block.timestamp) {
+        if (oData.expiry <= block.timestamp) {
             revert Expired();
         }
 
@@ -550,14 +617,6 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
         _safeMint(_params.to, optionIds);
 
         emit LogSplitOption(_params, optionIds, ownerOf(_params.optionId));
-    }
-
-    /// @notice Updates the exercise delegate for the caller
-    /// @param _delegateTo The address to delegate to
-    /// @param _status The delegation status
-    function updateExerciseDelegate(address _delegateTo, bool _status) external {
-        exerciseDelegator[msg.sender][_delegateTo] = _status;
-        emit LogUpdateExerciseDelegate(msg.sender, _delegateTo, _status);
     }
 
     /// @notice Gets the price per call asset via a specific tick
@@ -699,24 +758,43 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
     /// @param _dpFee The fee strategy address
     /// @param _optionPricing The option pricing address
     /// @param _verifiedSpotPrice The verified spot price address
+    /// @param _maxTickDiff The maximum tick difference
     function updatePoolSettings(
         address _feeTo,
         address _tokenURIFetcher,
         address _dpFee,
         address _optionPricing,
-        address _verifiedSpotPrice
+        address _verifiedSpotPrice,
+        uint24 _maxTickDiff,
+        int24 _maxUpperTick,
+        int24 _minLowerTick,
+        uint128 _minLiquidityToUse
     ) external onlyOwner {
         feeTo = _feeTo;
         tokenURIFetcher = _tokenURIFetcher;
         dpFee = IClammFeeStrategyV2(_dpFee);
         optionPricing = IOptionPricingV2(_optionPricing);
         verifiedSpotPrice = IVerifiedSpotPrice(_verifiedSpotPrice);
+        maxTickDiff = _maxTickDiff;
+        maxUpperTick = _maxUpperTick;
+        minLowerTick = _minLowerTick;
+        minLiquidityToUse = _minLiquidityToUse;
         emit LogUpdatePoolSettings(_feeTo, _tokenURIFetcher, _dpFee, _optionPricing);
+    }
+
+    function setApprovedSwapperAndHook(address swapper, bool statusSwapper, address hook, bool statusHook)
+        external
+        onlyOwner
+    {
+        approvedSwapper[swapper] = statusSwapper;
+        approvedHooks[hook] = statusHook;
+        emit LogUpdateApprovedSwapper(swapper, statusSwapper);
+        emit LogUpdateApprovedHook(hook, statusHook);
     }
 
     /// @notice Emergency withdraw function
     /// @param token The token address to withdraw
     function emergencyWithdraw(address token) external onlyOwner {
-        ERC20(token).transfer(msg.sender, ERC20(token).balanceOf(address(this)));
+        ERC20(token).safeTransfer(msg.sender, ERC20(token).balanceOf(address(this)));
     }
 }

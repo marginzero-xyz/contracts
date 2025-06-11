@@ -99,8 +99,7 @@ abstract contract V3BaseHandlerVe33Shadow is IHandler, ERC6909, Ownable {
     /// @notice Enum for wildcard actions
     enum WildcardActions {
         RESERVE_LIQUIDITY,
-        COLLECT_FEES,
-        SPLIT_POSITION
+        COLLECT_FEES
     }
 
     /// @notice Struct for reserved liquidity information
@@ -162,7 +161,7 @@ abstract contract V3BaseHandlerVe33Shadow is IHandler, ERC6909, Ownable {
     /// @notice Registers a new hook
     /// @param _hook Address of the hook to register
     /// @param _info Permission information for the hook
-    function registerHook(address _hook, IHandler.HookPermInfo memory _info) external {
+    function registerHook(address _hook, IHandler.HookPermInfo memory _info) external onlyOwner {
         if (hookRegistered[_hook]) {
             revert HookAlreadyRegistered();
         }
@@ -488,8 +487,6 @@ abstract contract V3BaseHandlerVe33Shadow is IHandler, ERC6909, Ownable {
             _reserveOps(context, _data);
         } else if (wca == WildcardActions.COLLECT_FEES) {
             _collectFees(_data);
-        } else if (wca == WildcardActions.SPLIT_POSITION) {
-            _splitPosition(_data);
         }
 
         return bytes("");
@@ -540,177 +537,6 @@ abstract contract V3BaseHandlerVe33Shadow is IHandler, ERC6909, Ownable {
             rld.liquidity -= _params.liquidity;
 
             emit LogWithdrawReserveLiquidity(_params, context, amount1, amount1);
-        }
-    }
-
-    function _calculateTickDifference(int24 tick1, int24 tick2) private pure returns (uint256) {
-        return uint256(int256(tick1 > tick2 ? tick1 - tick2 : tick2 - tick1));
-    }
-
-    struct SplitPositionParams {
-        address user;
-        IV3Pool pool;
-        address hook;
-        int24 tickLower;
-        int24 tickUpper;
-        int24[] tickSplits;
-    }
-
-    struct SplitPositionCache {
-        uint160 sqrtPriceX96;
-        uint256 userAmount0;
-        uint256 userAmount1;
-        uint256 initialAmount0;
-        uint256 initialAmount1;
-        int24 currentTick;
-        int24 tickSpacing;
-        int24 tLCurrentTick;
-        int24 tUCurrentTick;
-        uint256 ticksAtToken0;
-        uint256 ticksAtToken1;
-        uint256 currentTickDiff0;
-        uint256 currentTickDiff1;
-        uint256 amount0PerTick;
-        uint256 amount1PerTick;
-    }
-
-    struct SplitPositionLoopCache {
-        uint256 amount0ForRange;
-        uint256 amount1ForRange;
-        uint128 newLiquidity;
-        uint256 added0;
-        uint256 added1;
-    }
-
-    /// @notice Internal function to split a position into multiple positions
-    /// @param _splitPositionData Encoded data for splitting the position
-    function _splitPosition(bytes memory _splitPositionData) private {
-        SplitPositionParams memory spp = abi.decode(_splitPositionData, (SplitPositionParams));
-
-        if (spp.tickSplits[0] != spp.tickLower || spp.tickSplits[spp.tickSplits.length - 1] != spp.tickUpper) {
-            revert InvalidTicks();
-        }
-
-        SplitPositionCache memory cache;
-
-        (cache.sqrtPriceX96, cache.currentTick) = _getCurrentSqrtPriceX96(spp.pool);
-
-        if (!hookPerms[spp.hook].allowSplit) revert HookNotRegistered();
-
-        uint256 tokenId =
-            uint256(keccak256(abi.encode(address(this), spp.pool, spp.hook, spp.tickLower, spp.tickUpper)));
-
-        (cache.userAmount0, cache.userAmount1) = burnInternal(
-            BurnLiquidityInternalCache({
-                tokenId: tokenId,
-                pool: spp.pool,
-                hook: spp.hook,
-                liquidity: uint128(balanceOf[spp.user][tokenId]),
-                tickLower: spp.tickLower,
-                tickUpper: spp.tickUpper,
-                context: spp.user,
-                receiver: address(this)
-            })
-        );
-
-        SplitPositionLoopCache memory loopCache;
-
-        // Calculate amounts per tick
-        cache.tickSpacing = spp.pool.tickSpacing();
-
-        cache.tLCurrentTick = cache.currentTick > 0
-            ? cache.currentTick - (cache.currentTick % cache.tickSpacing)
-            : cache.currentTick - (cache.tickSpacing + (cache.currentTick % cache.tickSpacing));
-        cache.tUCurrentTick = cache.tLCurrentTick + cache.tickSpacing;
-
-        bool isCurrentTickInRange = cache.currentTick > spp.tickLower && cache.currentTick < spp.tickUpper;
-
-        cache.initialAmount0 = cache.userAmount0;
-        cache.initialAmount1 = cache.userAmount1;
-
-        if (isCurrentTickInRange) {
-            cache.ticksAtToken0 = _calculateTickDifference(cache.currentTick, spp.tickSplits[spp.tickSplits.length - 1]);
-            cache.ticksAtToken1 = _calculateTickDifference(cache.currentTick, spp.tickSplits[0]);
-
-            cache.currentTickDiff0 = uint256(int256(cache.tUCurrentTick - cache.currentTick));
-            cache.currentTickDiff1 = uint256(int256(cache.currentTick - cache.tLCurrentTick));
-
-            loopCache.newLiquidity = LiquidityAmounts.getLiquidityForAmounts(
-                cache.sqrtPriceX96,
-                TickMath.getSqrtRatioAtTick(cache.tLCurrentTick),
-                TickMath.getSqrtRatioAtTick(cache.tUCurrentTick),
-                (cache.userAmount0 * cache.currentTickDiff0) / cache.ticksAtToken0,
-                (cache.userAmount1 * cache.currentTickDiff1) / cache.ticksAtToken1
-            );
-
-            (loopCache.added0, loopCache.added1) = LiquidityAmounts.getAmountsForLiquidity(
-                cache.sqrtPriceX96,
-                TickMath.getSqrtRatioAtTick(cache.tLCurrentTick),
-                TickMath.getSqrtRatioAtTick(cache.tUCurrentTick),
-                loopCache.newLiquidity
-            );
-
-            cache.amount0PerTick =
-                ((cache.userAmount0 - loopCache.added0) / (cache.ticksAtToken0 - cache.currentTickDiff0));
-
-            cache.amount1PerTick =
-                ((cache.userAmount1 - loopCache.added1) / (cache.ticksAtToken1 - cache.currentTickDiff1));
-        } else {
-            cache.ticksAtToken1 = _calculateTickDifference(spp.tickUpper, spp.tickLower);
-            cache.ticksAtToken0 = cache.ticksAtToken1;
-
-            cache.amount0PerTick = cache.userAmount0 / cache.ticksAtToken0;
-            cache.amount1PerTick = cache.userAmount1 / cache.ticksAtToken1;
-        }
-
-        for (uint256 i; i < spp.tickSplits.length - 1; i++) {
-            int24 tL = spp.tickSplits[i];
-            int24 tU = spp.tickSplits[i + 1];
-
-            if (tL >= tU) revert InvalidTicks();
-
-            if (cache.currentTick > tU || cache.currentTick < tL) {
-                uint256 tickRange;
-                tickRange = _calculateTickDifference(tL, tU);
-                // Calculate amounts based on tick range
-                loopCache.amount0ForRange = cache.amount0PerTick * tickRange;
-                loopCache.amount1ForRange = cache.amount1PerTick * tickRange;
-            } else {
-                if (tL != cache.tLCurrentTick || tU != cache.tUCurrentTick) {
-                    revert InvalidTicks();
-                }
-
-                loopCache.amount0ForRange = (cache.initialAmount0 * cache.currentTickDiff0) / cache.ticksAtToken0;
-                loopCache.amount1ForRange = (cache.initialAmount1 * cache.currentTickDiff1) / cache.ticksAtToken1;
-            }
-
-            (loopCache.newLiquidity, loopCache.added0, loopCache.added1) = mintInternal(
-                MintLiquidityInternalCache({
-                    self: true,
-                    tokenId: uint256(keccak256(abi.encode(address(this), spp.pool, spp.hook, tL, tU))),
-                    pool: spp.pool,
-                    hook: spp.hook,
-                    liquidity: 0,
-                    amount0: loopCache.amount0ForRange,
-                    amount1: loopCache.amount1ForRange,
-                    tickLower: tL,
-                    tickUpper: tU,
-                    context: spp.user
-                })
-            );
-
-            cache.userAmount0 -= loopCache.added0;
-            cache.userAmount1 -= loopCache.added1;
-        }
-
-        TokenIdInfo memory tki = tokenIds[tokenId];
-
-        // Transfer any remaining tokens to the user
-        if (cache.userAmount0 > 0) {
-            IERC20(tki.token0).safeTransfer(spp.user, cache.userAmount0);
-        }
-        if (cache.userAmount1 > 0) {
-            IERC20(tki.token1).safeTransfer(spp.user, cache.userAmount1);
         }
     }
 
