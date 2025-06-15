@@ -111,7 +111,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
 
         // Deploy the Uniswap V3 handler with additional arguments
         handler = new UniswapV3Handler(
-            owner, 
+            owner,
             feeReceiver, // _feeReceiver
             address(factory), // _factory
             0xa598dd2fba360510c5a8f02f44423a4468e902df5857dbce3ca162a43a3a31ff
