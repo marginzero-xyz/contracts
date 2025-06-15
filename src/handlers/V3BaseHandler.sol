@@ -146,8 +146,9 @@ abstract contract V3BaseHandler is IHandler, ERC6909, Ownable {
     event LogWithdrawReserveLiquidity(ReserveOperation params, address context, uint256 amount0, uint256 amount1);
 
     /// @notice Constructor for V3BaseHandler
+    /// @param _owner Address of the contract owner
     /// @param _feeReceiver Address to receive fees
-    constructor(address _feeReceiver) Ownable(msg.sender) {
+    constructor(address _owner, address _feeReceiver) Ownable(_owner) {
         feeReceiver = _feeReceiver;
     }
 

@@ -111,6 +111,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
 
         // Deploy the Uniswap V3 handler with additional arguments
         handler = new UniswapV3Handler(
+            owner, 
             feeReceiver, // _feeReceiver
             address(factory), // _factory
             0xa598dd2fba360510c5a8f02f44423a4468e902df5857dbce3ca162a43a3a31ff
@@ -134,13 +135,14 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
             })
         );
 
-        optionPricingLinearV2 = new OptionPricingLinearV2();
+        optionPricingLinearV2 = new OptionPricingLinearV2(owner);
 
-        clammFeeStrategyV2 = new ClammFeeStrategyV2();
+        clammFeeStrategyV2 = new ClammFeeStrategyV2(owner);
 
         poolSpotPrice = new PoolSpotPrice();
 
         optionMarketOTMFE = new OptionMarketOTMFE(
+            owner,
             address(positionManager),
             address(optionPricingLinearV2),
             address(clammFeeStrategyV2),
@@ -166,7 +168,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
 
         clammFeeStrategyV2.registerOptionMarket(address(optionMarketOTMFE), 350000);
 
-        openSettlement = new OpenSettlement(settler, publicFeeRecipient, 1000, 500);
+        openSettlement = new OpenSettlement(owner, settler, publicFeeRecipient, 1000, 500);
 
         optionMarketOTMFE.updatePoolApporvals(settler, true, address(pool), true, 86400, 1729065600, true, 10 minutes);
         optionMarketOTMFE.updatePoolApporvals(

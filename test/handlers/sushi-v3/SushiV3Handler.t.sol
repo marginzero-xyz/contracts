@@ -59,6 +59,7 @@ contract SushiV3HandlerTest is Test {
 
         // Deploy the Uniswap V3 handler with additional arguments
         handler = new SushiV3Handler(
+           owner,
             feeReceiver, // _feeReceiver
             address(factory), // _factory
             PAIR_INIT_CODE_HASH

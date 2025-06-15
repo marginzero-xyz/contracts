@@ -33,8 +33,8 @@ contract OptionPricingLinearV2 is Ownable {
     error Vol_Not_Set();
     error ArrayLengthMismatch();
 
-    constructor() Ownable(msg.sender) {
-        ivSetter[msg.sender] = true;
+    constructor(address _owner) Ownable(_owner) {
+        ivSetter[_owner] = true;
     }
 
     /*---- GOVERNANCE FUNCTIONS ----*/

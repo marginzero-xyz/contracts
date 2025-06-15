@@ -181,6 +181,7 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
     mapping(address => bool) public approvedHooks;
 
     /// @notice Constructor for the OptionMarketOTM_Fixed_Expiry_V1 contract
+    /// @param _owner Address of the contract owner
     /// @param _pm Address of the position manager
     /// @param _optionPricing Address of the option pricing contract
     /// @param _dpFee Address of the fee strategy contract
@@ -188,6 +189,7 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
     /// @param _putAsset Address of the put asset
     /// @param _primePool Address of the prime pool
     constructor(
+        address _owner,
         address _pm,
         address _optionPricing,
         address _dpFee,
@@ -195,7 +197,7 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
         address _putAsset,
         address _primePool,
         address _verifiedSpotPrice
-    ) Ownable(msg.sender) {
+    ) Ownable(_owner) {
         positionManager = IPositionManager(_pm);
         callAsset = _callAsset;
         putAsset = _putAsset;
