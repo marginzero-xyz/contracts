@@ -2,7 +2,7 @@
 
 Forge Standard Library is a collection of helpful contracts and libraries for use with [Forge and Foundry](https://github.com/foundry-rs/foundry). It leverages Forge's cheatcodes to make writing tests easier and faster, while improving the UX of cheatcodes.
 
-**Learn how to use Forge-Std with the [📖 Foundry Book (Forge-Std Guide)](https://book.getfoundry.sh/forge/forge-std.html).**
+**Learn how to use Forge-Std with the [📖 Foundry Book (Forge-Std Guide)](https://getfoundry.sh/reference/forge-std/overview/).**
 
 ## Install
 
@@ -13,7 +13,7 @@ forge install foundry-rs/forge-std
 ## Contracts
 ### stdError
 
-This is a helper contract for errors and reverts. In Forge, this contract is particularly helpful for the `expectRevert` cheatcode, as it provides all compiler builtin errors.
+This is a helper contract for errors and reverts. In Forge, this contract is particularly helpful for the `expectRevert` cheatcode, as it provides all compiler built-in errors.
 
 See the contract itself for all error codes.
 
@@ -38,7 +38,7 @@ contract TestContract is Test {
 
 contract ErrorsTest {
     function arithmeticError(uint256 a) public {
-        uint256 a = a - 100;
+        a = a - 100;
     }
 }
 ```
@@ -165,7 +165,7 @@ contract Storage {
 
 ### stdCheats
 
-This is a wrapper over miscellaneous cheatcodes that need wrappers to be more dev friendly. Currently there are only functions related to `prank`. In general, users may expect ETH to be put into an address on `prank`, but this is not the case for safety reasons. Explicitly this `hoax` function should only be used for address that have expected balances as it will get overwritten. If an address already has ETH, you should just use `prank`. If you want to change that balance explicitly, just use `deal`. If you want to do both, `hoax` is also right for you.
+This is a wrapper over miscellaneous cheatcodes that need wrappers to be more dev friendly. Currently there are only functions related to `prank`. In general, users may expect ETH to be put into an address on `prank`, but this is not the case for safety reasons. Explicitly this `hoax` function should only be used for addresses that have expected balances as it will get overwritten. If an address already has ETH, you should just use `prank`. If you want to change that balance explicitly, just use `deal`. If you want to do both, `hoax` is also right for you.
 
 
 #### Example usage:
@@ -244,6 +244,22 @@ import "forge-std/console.sol";
 ...
 console.log(someValue);
 ```
+
+## Contributing
+
+See our [contributing guidelines](./CONTRIBUTING.md).
+
+## Getting Help
+
+First, see if the answer to your question can be found in [book](https://book.getfoundry.sh).
+
+If the answer is not there:
+
+-   Join the [support Telegram](https://t.me/foundry_support) to get help, or
+-   Open a [discussion](https://github.com/foundry-rs/foundry/discussions/new/choose) with your question, or
+-   Open an issue with [the bug](https://github.com/foundry-rs/foundry/issues/new/choose)
+
+If you want to contribute, or follow along with contributor discussion, you can use our [main telegram](https://t.me/foundry_rs) to chat with us about the development of Foundry!
 
 ## License
 
