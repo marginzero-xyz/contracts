@@ -480,7 +480,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
 
     function testMinLiquidityToUse() public {
         vm.prank(owner);
-          optionMarketOTMFE.updatePoolSettings(
+        optionMarketOTMFE.updatePoolSettings(
             address(feeReceiver),
             address(0),
             address(clammFeeStrategyV2),
@@ -491,7 +491,6 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
             -887272,
             1e18
         );
-
 
         vm.warp(block.timestamp + 10 minutes);
         TestVars memory vars;
@@ -1629,6 +1628,81 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         // Mint the option
         vm.expectRevert(OptionMarketOTMFE.NotValidStrikeTick.selector);
         optionMarketOTMFE.mintOption(params);
+    }
+
+    function testGetPremiumAmountWhenPoolTokensReversed() public {
+        // Deploy mock tokens for testing
+        MockERC20 testUSDC = new MockERC20("USD Coin", "USDC", 6);
+        MockERC20 testETH = new MockERC20("Ethereum", "ETH", 18);
+
+        uint160 sqrtPriceX96 = 1771595571142957166518320255467520;
+        IUniswapV3Pool testPool =
+            IUniswapV3Pool(uniswapV3PoolUtils.deployAndInitializePool(factory, testETH, testUSDC, 500, sqrtPriceX96));
+
+        uniswapV3PoolUtils.addLiquidity(
+            UniswapV3PoolUtils.AddLiquidityStruct({
+                liquidityManager: address(uniswapV3LiquidityManagement),
+                pool: testPool,
+                user: owner,
+                desiredAmount0: 10_000_000e6,
+                desiredAmount1: 10 ether,
+                desiredTickLower: 200010,
+                desiredTickUpper: 201010,
+                requireMint: true
+            })
+        );
+
+        vm.startPrank(owner);
+
+        OptionMarketOTMFE testOptionMarket = new OptionMarketOTMFE(
+            address(positionManager),
+            address(optionPricingLinearV2),
+            address(clammFeeStrategyV2),
+            address(testETH),
+            address(testUSDC),
+            address(testPool),
+            address(poolSpotPrice)
+        );
+
+        uint256[] memory ttls = new uint256[](1);
+        uint256[] memory ttlIV = new uint256[](1);
+
+        ttls[0] = 86400;
+        ttlIV[0] = 50;
+
+        optionPricingLinearV2.updateIVs(address(testOptionMarket), ttls, ttlIV);
+        optionPricingLinearV2.updateVolatilityOffset(address(testOptionMarket), 10_000);
+        optionPricingLinearV2.updateVolatilityMultiplier(address(testOptionMarket), 1_000);
+        optionPricingLinearV2.updateMinOptionPricePercentage(address(testOptionMarket), 10_000_000);
+
+        uint256 expectedPremium0 = testOptionMarket.getPremiumAmount(
+            address(mockHook),
+            false, // isCall
+            block.timestamp + 86400,
+            86400,
+            2000e6, // strike price
+            2500e6, // current price
+            1000e6
+        );
+
+        uint256 expectedPremium1 = optionMarketOTMFE.getPremiumAmount(
+            address(mockHook),
+            false, // isCall
+            block.timestamp + 86400,
+            86400,
+            2000e6, // strike price
+            2500e6, // current price
+            1000e6
+        );
+
+        assertEq(testPool.token0(), address(testETH), "Test PoolToken1 should be ETH");
+        assertEq(testPool.token1(), address(testUSDC), "Test Pool Token0 should be USDC");
+
+        assertEq(pool.token0(), address(USDC), "Pool token0 should be USDC");
+        assertEq(pool.token1(), address(ETH), "Pool token1 should be ETH");
+        assertEq(expectedPremium0, expectedPremium1, "Premium amounts should be equal");
+
+        vm.stopPrank();
     }
 
     function addLiquidity(int24 tickLower, int24 tickUpper, uint128 liquidity) public returns (uint256) {
