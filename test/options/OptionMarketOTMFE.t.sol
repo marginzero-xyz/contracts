@@ -478,6 +478,163 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         vm.stopPrank();
     }
 
+    function testMinLiquidityToUse() public {
+        vm.prank(owner);
+        optionMarketOTMFE.updatePoolSettings(
+            address(feeReceiver),
+            address(0),
+            address(clammFeeStrategyV2),
+            address(optionPricingLinearV2),
+            address(poolSpotPrice),
+            100,
+            887272,
+            -887272,
+            1e18
+        );
+
+        vm.warp(block.timestamp + 10 minutes);
+        TestVars memory vars;
+
+        // Setup
+        vars.sharesMinted = addLiquidityForCALL();
+
+        // Get current price and tick
+        (vars.sqrtPriceX96, vars.currentTick,,,,,) = pool.slot0();
+
+        // Calculate tick range for the long position
+        int24 tickSpacing = pool.tickSpacing();
+        vars.tickUpper = ((vars.currentTick / tickSpacing) * tickSpacing) - tickSpacing;
+        vars.tickLower = vars.tickUpper - 1 * tickSpacing;
+
+        // Prepare option parameters
+        OptionMarketOTMFE.OptionTicks[] memory optionTicks = new OptionMarketOTMFE.OptionTicks[](1);
+        optionTicks[0] = OptionMarketOTMFE.OptionTicks({
+            _handler: IHandler(address(handler)),
+            pool: pool,
+            hook: address(mockHook),
+            tickLower: vars.tickLower,
+            tickUpper: vars.tickUpper,
+            liquidityToUse: uint128(vars.sharesMinted)
+        });
+
+        OptionMarketOTMFE.OptionParams memory params = OptionMarketOTMFE.OptionParams({
+            optionTicks: optionTicks,
+            tickLower: vars.tickLower,
+            tickUpper: vars.tickUpper,
+            ttl: 86400, // 1 day
+            isCall: true,
+            maxCostAllowance: 0 // 1 ETH max cost
+        });
+
+        // Get current price and calculate expected premium
+        uint256 currentPrice = poolSpotPrice.getSpotPrice(pool, address(ETH), ETH.decimals());
+        uint256 strike = optionMarketOTMFE.getPricePerCallAssetViaTick(pool, params.tickUpper);
+        uint256 amount = LiquidityAmounts.getAmount1ForLiquidity(
+            TickMath.getSqrtRatioAtTick(vars.tickLower),
+            TickMath.getSqrtRatioAtTick(vars.tickUpper),
+            uint128(vars.sharesMinted)
+        );
+
+        uint256 expectedPremium = optionMarketOTMFE.getPremiumAmount(
+            address(mockHook),
+            false, // isCall
+            block.timestamp + params.ttl - 10 minutes,
+            params.ttl,
+            strike,
+            currentPrice,
+            amount
+        );
+
+        uint256 expectedFees = optionMarketOTMFE.getFee(amount, expectedPremium);
+
+        params.maxCostAllowance = expectedPremium + expectedFees;
+
+        // Approve ETH spending for premium payment
+        vm.startPrank(trader);
+        ETH.mint(trader, expectedPremium + expectedFees);
+        ETH.approve(address(optionMarketOTMFE), expectedPremium + expectedFees);
+
+        vm.expectRevert(OptionMarketOTMFE.MinLiquidityToUse.selector);
+        // Mint the option
+        optionMarketOTMFE.mintOption(params);
+
+        vm.stopPrank();
+    }
+
+    function testApprovedHook() public {
+        vm.warp(block.timestamp + 10 minutes);
+        TestVars memory vars;
+
+        // Setup
+        vars.sharesMinted = addLiquidityForCALL();
+
+        // Get current price and tick
+        (vars.sqrtPriceX96, vars.currentTick,,,,,) = pool.slot0();
+
+        // Calculate tick range for the long position
+        int24 tickSpacing = pool.tickSpacing();
+        vars.tickUpper = ((vars.currentTick / tickSpacing) * tickSpacing) - tickSpacing;
+        vars.tickLower = vars.tickUpper - 1 * tickSpacing;
+
+        // Prepare option parameters
+        OptionMarketOTMFE.OptionTicks[] memory optionTicks = new OptionMarketOTMFE.OptionTicks[](1);
+        optionTicks[0] = OptionMarketOTMFE.OptionTicks({
+            _handler: IHandler(address(handler)),
+            pool: pool,
+            hook: makeAddr("NotApprovedHook"),
+            tickLower: vars.tickLower,
+            tickUpper: vars.tickUpper,
+            liquidityToUse: uint128(vars.sharesMinted)
+        });
+
+        OptionMarketOTMFE.OptionParams memory params = OptionMarketOTMFE.OptionParams({
+            optionTicks: optionTicks,
+            tickLower: vars.tickLower,
+            tickUpper: vars.tickUpper,
+            ttl: 86400, // 1 day
+            isCall: true,
+            maxCostAllowance: 0 // 1 ETH max cost
+        });
+
+        // Get current price and calculate expected premium
+        uint256 currentPrice = poolSpotPrice.getSpotPrice(pool, address(ETH), ETH.decimals());
+        uint256 strike = optionMarketOTMFE.getPricePerCallAssetViaTick(pool, params.tickUpper);
+        uint256 amount = LiquidityAmounts.getAmount1ForLiquidity(
+            TickMath.getSqrtRatioAtTick(vars.tickLower),
+            TickMath.getSqrtRatioAtTick(vars.tickUpper),
+            uint128(vars.sharesMinted)
+        );
+
+        uint256 expectedPremium = optionMarketOTMFE.getPremiumAmount(
+            address(mockHook),
+            false, // isCall
+            block.timestamp + params.ttl - 10 minutes,
+            params.ttl,
+            strike,
+            currentPrice,
+            amount
+        );
+
+        uint256 expectedFees = optionMarketOTMFE.getFee(amount, expectedPremium);
+
+        params.maxCostAllowance = expectedPremium + expectedFees;
+
+        // Approve ETH spending for premium payment
+        vm.startPrank(trader);
+        ETH.mint(trader, expectedPremium + expectedFees);
+        ETH.approve(address(optionMarketOTMFE), expectedPremium + expectedFees);
+
+        // Record balances before minting
+        uint256 traderETHBefore = ETH.balanceOf(trader);
+        uint256 marketETHBefore = ETH.balanceOf(address(optionMarketOTMFE));
+
+        vm.expectRevert(OptionMarketOTMFE.NotApprovedHook.selector);
+        // Mint the option
+        optionMarketOTMFE.mintOption(params);
+
+        vm.stopPrank();
+    }
+
     function testBuyCallOption() public {
         vm.warp(block.timestamp + 10 minutes);
         TestVars memory vars;
@@ -1012,12 +1169,16 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
             liquidityToSettle: liquidityToSettle
         });
 
+        vm.prank(user);
+        vm.expectRevert(OptionMarketOTMFE.NotApprovedSettler.selector);
+        OptionMarketOTMFE.AssetsCache memory result = optionMarketOTMFE.settleOption(settleParams);
+
         // Exercise the option
         vm.startPrank(settler);
         vars.balanceBefore.balance0 = USDC.balanceOf(trader);
         vars.balanceBefore.balance1 = ETH.balanceOf(trader);
 
-        OptionMarketOTMFE.AssetsCache memory result = optionMarketOTMFE.settleOption(settleParams);
+        result = optionMarketOTMFE.settleOption(settleParams);
         ETH.transfer(address(trader), result.totalProfit);
 
         vars.balanceAfter.balance0 = USDC.balanceOf(trader);
@@ -1300,6 +1461,422 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
 
         // Check if the trader owns the new option
         assertEq(optionMarketOTMFE.ownerOf(newOptionId), trader, "Trader should own the new option");
+    }
+
+    function testWideRangeTicksAbuse() public {
+        TestVars memory vars;
+
+        (uint160 sqrtPriceX96, int24 currentTick,,,,,) = pool.slot0();
+
+        vm.prank(owner);
+        optionMarketOTMFE.updatePoolSettings(
+            address(feeReceiver),
+            address(0),
+            address(clammFeeStrategyV2),
+            address(optionPricingLinearV2),
+            address(poolSpotPrice),
+            1000,
+            887272,
+            -887272,
+            0
+        );
+
+        // Wide range, if liquidity is a really low number, either amount0 or amount1 can
+        // be a zero and non zero, instead
+        // of both being non zero
+        int24 tickLower = 200000;
+        int24 tickUpper = 200600;
+
+        // Adding liquidity to the range
+        (uint256 a0, uint256 a1) = LiquidityAmounts.getAmountsForLiquidity(
+            sqrtPriceX96, TickMath.getSqrtRatioAtTick(tickLower), TickMath.getSqrtRatioAtTick(tickUpper), 10000
+        );
+
+        addLiquidity(tickLower, tickUpper, 100000000000000000);
+
+        uint256 optionoId = optionMarketOTMFE.optionIds();
+        vm.warp(block.timestamp + 10 minutes);
+
+        // Get current price and tick
+        (vars.sqrtPriceX96, vars.currentTick,,,,,) = pool.slot0();
+
+        // Prepare option parameters
+        OptionMarketOTMFE.OptionTicks[] memory optionTicks = new OptionMarketOTMFE.OptionTicks[](1);
+        optionTicks[0] = OptionMarketOTMFE.OptionTicks({
+            _handler: IHandler(address(handler)),
+            pool: pool,
+            hook: address(mockHook),
+            tickLower: tickLower,
+            tickUpper: tickUpper,
+            liquidityToUse: uint128(10000)
+        });
+
+        OptionMarketOTMFE.OptionParams memory params = OptionMarketOTMFE.OptionParams({
+            optionTicks: optionTicks,
+            tickLower: tickLower,
+            tickUpper: tickUpper,
+            ttl: 86400, // 1 day
+            isCall: true,
+            maxCostAllowance: 0 // 1 ETH max cost
+        });
+
+        // Get current price and calculate expected premium
+        uint256 currentPrice = poolSpotPrice.getSpotPrice(pool, address(ETH), ETH.decimals());
+        uint256 strike = optionMarketOTMFE.getPricePerCallAssetViaTick(pool, params.tickUpper);
+        uint256 amount = LiquidityAmounts.getAmount1ForLiquidity(
+            TickMath.getSqrtRatioAtTick(tickLower), TickMath.getSqrtRatioAtTick(tickUpper), uint128(vars.sharesMinted)
+        );
+
+        uint256 expectedPremium = optionMarketOTMFE.getPremiumAmount(
+            address(mockHook),
+            false, // isCall
+            block.timestamp + params.ttl - 10 minutes,
+            params.ttl,
+            strike,
+            currentPrice,
+            amount
+        );
+
+        uint256 expectedFees = optionMarketOTMFE.getFee(amount, expectedPremium);
+
+        params.maxCostAllowance = expectedPremium + expectedFees;
+
+        // Approve ETH spending for premium payment
+        vm.startPrank(trader);
+        ETH.mint(trader, expectedPremium + expectedFees);
+        ETH.approve(address(optionMarketOTMFE), expectedPremium + expectedFees);
+
+        // Mint the option
+        vm.expectRevert(OptionMarketOTMFE.NotValidStrikeTick.selector);
+        optionMarketOTMFE.mintOption(params);
+    }
+
+    function testExceedingMaxTickDiff() public {
+        TestVars memory vars;
+
+        (uint160 sqrtPriceX96,,,,,,) = pool.slot0();
+
+        // Wide range, if liquidity is a really low number, either amount0 or amount1 can
+        // be a zero and non zero, instead
+        // of both being non zero
+        int24 tickLower = 200500;
+        int24 tickUpper = 202000;
+
+        // Adding liquidity to the range
+        (uint256 a0, uint256 a1) = LiquidityAmounts.getAmountsForLiquidity(
+            sqrtPriceX96, TickMath.getSqrtRatioAtTick(tickLower), TickMath.getSqrtRatioAtTick(tickUpper), 10000
+        );
+
+        addLiquidity(tickLower, tickUpper, 100000000000000000);
+
+        uint256 optionoId = optionMarketOTMFE.optionIds();
+        vm.warp(block.timestamp + 10 minutes);
+
+        // Get current price and tick
+        (vars.sqrtPriceX96, vars.currentTick,,,,,) = pool.slot0();
+
+        // Prepare option parameters
+        OptionMarketOTMFE.OptionTicks[] memory optionTicks = new OptionMarketOTMFE.OptionTicks[](1);
+        optionTicks[0] = OptionMarketOTMFE.OptionTicks({
+            _handler: IHandler(address(handler)),
+            pool: pool,
+            hook: address(mockHook),
+            tickLower: tickLower,
+            tickUpper: tickUpper,
+            liquidityToUse: uint128(10000)
+        });
+
+        OptionMarketOTMFE.OptionParams memory params = OptionMarketOTMFE.OptionParams({
+            optionTicks: optionTicks,
+            tickLower: tickLower,
+            tickUpper: tickUpper,
+            ttl: 86400, // 1 day
+            isCall: true,
+            maxCostAllowance: 0 // 1 ETH max cost
+        });
+
+        // Get current price and calculate expected premium
+        uint256 currentPrice = poolSpotPrice.getSpotPrice(pool, address(ETH), ETH.decimals());
+        uint256 strike = optionMarketOTMFE.getPricePerCallAssetViaTick(pool, params.tickUpper);
+        uint256 amount = LiquidityAmounts.getAmount1ForLiquidity(
+            TickMath.getSqrtRatioAtTick(tickLower), TickMath.getSqrtRatioAtTick(tickUpper), uint128(vars.sharesMinted)
+        );
+
+        uint256 expectedPremium = optionMarketOTMFE.getPremiumAmount(
+            address(mockHook),
+            false, // isCall
+            block.timestamp + params.ttl - 10 minutes,
+            params.ttl,
+            strike,
+            currentPrice,
+            amount
+        );
+
+        uint256 expectedFees = optionMarketOTMFE.getFee(amount, expectedPremium);
+
+        params.maxCostAllowance = expectedPremium + expectedFees;
+
+        // Approve ETH spending for premium payment
+        vm.startPrank(trader);
+        ETH.mint(trader, expectedPremium + expectedFees);
+        ETH.approve(address(optionMarketOTMFE), expectedPremium + expectedFees);
+
+        // Mint the option
+        vm.expectRevert(OptionMarketOTMFE.NotValidStrikeTick.selector);
+        optionMarketOTMFE.mintOption(params);
+    }
+
+    function testGetPremiumAmountWhenPoolTokensReversed() public {
+        // Deploy mock tokens for testing
+        MockERC20 testUSDC = new MockERC20("USD Coin", "USDC", 6);
+        MockERC20 testETH = new MockERC20("Ethereum", "ETH", 18);
+
+        uint160 sqrtPriceX96 = 1771595571142957166518320255467520;
+        IUniswapV3Pool testPool =
+            IUniswapV3Pool(uniswapV3PoolUtils.deployAndInitializePool(factory, testETH, testUSDC, 500, sqrtPriceX96));
+
+        uniswapV3PoolUtils.addLiquidity(
+            UniswapV3PoolUtils.AddLiquidityStruct({
+                liquidityManager: address(uniswapV3LiquidityManagement),
+                pool: testPool,
+                user: owner,
+                desiredAmount0: 10_000_000e6,
+                desiredAmount1: 10 ether,
+                desiredTickLower: 200010,
+                desiredTickUpper: 201010,
+                requireMint: true
+            })
+        );
+
+        vm.startPrank(owner);
+
+        OptionMarketOTMFE testOptionMarket = new OptionMarketOTMFE(
+            address(positionManager),
+            address(optionPricingLinearV2),
+            address(clammFeeStrategyV2),
+            address(testETH),
+            address(testUSDC),
+            address(testPool),
+            address(poolSpotPrice)
+        );
+
+        uint256[] memory ttls = new uint256[](1);
+        uint256[] memory ttlIV = new uint256[](1);
+
+        ttls[0] = 86400;
+        ttlIV[0] = 50;
+
+        optionPricingLinearV2.updateIVs(address(testOptionMarket), ttls, ttlIV);
+        optionPricingLinearV2.updateVolatilityOffset(address(testOptionMarket), 10_000);
+        optionPricingLinearV2.updateVolatilityMultiplier(address(testOptionMarket), 1_000);
+        optionPricingLinearV2.updateMinOptionPricePercentage(address(testOptionMarket), 10_000_000);
+
+        uint256 expectedPremium0 = testOptionMarket.getPremiumAmount(
+            address(mockHook),
+            false, // isCall
+            block.timestamp + 86400,
+            86400,
+            2000e6, // strike price
+            2500e6, // current price
+            1000e6
+        );
+
+        uint256 expectedPremium1 = optionMarketOTMFE.getPremiumAmount(
+            address(mockHook),
+            false, // isCall
+            block.timestamp + 86400,
+            86400,
+            2000e6, // strike price
+            2500e6, // current price
+            1000e6
+        );
+
+        assertEq(testPool.token0(), address(testETH), "Test PoolToken1 should be ETH");
+        assertEq(testPool.token1(), address(testUSDC), "Test Pool Token0 should be USDC");
+
+        assertEq(pool.token0(), address(USDC), "Pool token0 should be USDC");
+        assertEq(pool.token1(), address(ETH), "Pool token1 should be ETH");
+        assertEq(expectedPremium0, expectedPremium1, "Premium amounts should be equal");
+
+        vm.stopPrank();
+    }
+
+    int24 tickLowerOpTick0 = 190400;
+    int24 tickUpperOpTick0 = 190410;
+    int24 tickLowerOpTick1 = 191000;
+    int24 tickUpperOpTick1 = 191010;
+    uint128 liquidity = 1000e18;
+    uint128 liquidityToUse = liquidity / 2;
+
+    function testOpTicks() public {
+        TestVars memory vars;
+
+        (uint160 sqrtPriceX96,,,,,,) = pool.slot0();
+
+        addLiquidity(tickLowerOpTick0, tickUpperOpTick0, liquidity);
+        addLiquidity(tickLowerOpTick1, tickUpperOpTick1, liquidity);
+
+        uint256 optionoId = optionMarketOTMFE.optionIds();
+        vm.warp(block.timestamp + 10 minutes);
+
+        // Get current price and tick
+        (vars.sqrtPriceX96, vars.currentTick,,,,,) = pool.slot0();
+
+        // Prepare option parameters
+        OptionMarketOTMFE.OptionTicks[] memory optionTicks = new OptionMarketOTMFE.OptionTicks[](2);
+
+        optionTicks[0] = OptionMarketOTMFE.OptionTicks({
+            _handler: IHandler(address(handler)),
+            pool: pool,
+            hook: address(mockHook),
+            tickLower: tickLowerOpTick0,
+            tickUpper: tickUpperOpTick0,
+            liquidityToUse: liquidityToUse
+        });
+
+        optionTicks[1] = OptionMarketOTMFE.OptionTicks({
+            _handler: IHandler(address(handler)),
+            pool: pool,
+            hook: address(mockHook),
+            tickLower: tickLowerOpTick1,
+            tickUpper: tickUpperOpTick1,
+            liquidityToUse: liquidityToUse
+        });
+
+        OptionMarketOTMFE.OptionParams memory params = OptionMarketOTMFE.OptionParams({
+            optionTicks: optionTicks,
+            tickLower: tickLowerOpTick0,
+            tickUpper: tickUpperOpTick0,
+            ttl: 86400, // 1 day
+            isCall: true,
+            maxCostAllowance: 0 // 1 ETH max cost
+        });
+
+        // Get current price and calculate expected premium
+        uint256 currentPrice = poolSpotPrice.getSpotPrice(pool, address(ETH), ETH.decimals());
+        uint256 strike = optionMarketOTMFE.getPricePerCallAssetViaTick(pool, tickUpperOpTick0);
+        uint256 amount = LiquidityAmounts.getAmount1ForLiquidity(
+            TickMath.getSqrtRatioAtTick(tickLowerOpTick0), TickMath.getSqrtRatioAtTick(tickUpperOpTick0), liquidityToUse
+        );
+
+        uint256 expectedPremium = optionMarketOTMFE.getPremiumAmount(
+            address(mockHook),
+            false, // isCall
+            block.timestamp + params.ttl - 10 minutes,
+            params.ttl,
+            strike,
+            currentPrice,
+            amount
+        );
+
+        uint256 expectedFees = optionMarketOTMFE.getFee(amount, expectedPremium);
+
+        params.maxCostAllowance = expectedPremium + expectedFees;
+
+        // Approve ETH spending for premium payment
+        vm.startPrank(trader);
+        ETH.mint(trader, expectedPremium + expectedFees);
+        ETH.approve(address(optionMarketOTMFE), type(uint256).max);
+
+        // Sub opticks must be different
+        assertEq(params.tickLower, tickLowerOpTick0);
+        assertEq(params.tickUpper, tickUpperOpTick0);
+        assertNotEq(params.tickLower, tickLowerOpTick1);
+        assertNotEq(params.tickUpper, tickUpperOpTick1);
+
+        // Mint the option
+        vm.expectRevert(OptionMarketOTMFE.NotValidStrikeTick.selector);
+        optionMarketOTMFE.mintOption(params);
+    }
+
+    function testSwapperWhitelisting() public {
+        address malicousSwapper = makeAddr("malicousSwapper");
+        // Setup: Buy a call option
+        testBuyCallOption();
+
+        TestVars memory vars;
+        (vars.sqrtPriceX96, vars.currentTick,,,,,) = pool.slot0();
+        int24 tickSpacing = pool.tickSpacing();
+        vars.tickUpper = ((vars.currentTick / tickSpacing) * tickSpacing) - tickSpacing;
+        vars.tickLower = vars.tickUpper - 1 * tickSpacing;
+
+        // Warp time to just before expiry
+        vm.warp(block.timestamp + 85200); // 10 minutes before
+
+        // price increase
+        uint256 swapAmount = 10000e6; // 50,000 USDC
+        vm.startPrank(address(this));
+        USDC.mint(address(this), swapAmount);
+        USDC.approve(address(pool), swapAmount);
+
+        pool.swap(
+            address(0xD3AD),
+            true,
+            int256(swapAmount),
+            TickMath.MIN_SQRT_RATIO + 1, // Swap to the upper tick
+            abi.encode(address(this))
+        );
+
+        vm.stopPrank();
+
+        // Prepare for exercise
+        uint256 optionId = 1; // Assuming this is the first option minted
+        uint256[] memory liquidityToSettle = new uint256[](1);
+        (,,,,, uint256 liquidityToUse) = optionMarketOTMFE.opTickMap(optionId, 0);
+        liquidityToSettle[0] = liquidityToUse;
+
+        ISwapper[] memory swappers = new ISwapper[](1);
+        swappers[0] = ISwapper(malicousSwapper);
+
+        bytes[] memory swapData = new bytes[](1);
+        swapData[0] = ""; // No swap data needed
+
+        OptionMarketOTMFE.SettleOptionParams memory settleParams = OptionMarketOTMFE.SettleOptionParams({
+            optionId: optionId,
+            swapper: swappers,
+            swapData: swapData,
+            liquidityToSettle: liquidityToSettle
+        });
+
+        // Exercise the option
+        vm.startPrank(trader);
+        vars.balanceBefore.balance0 = USDC.balanceOf(trader);
+        vars.balanceBefore.balance1 = ETH.balanceOf(trader);
+
+        vm.expectRevert(OptionMarketOTMFE.NotApprovedSwapper.selector);
+        OptionMarketOTMFE.AssetsCache memory result = optionMarketOTMFE.settleOption(settleParams);
+    }
+
+    function addLiquidity(int24 tickLower, int24 tickUpper, uint128 liquidity) public returns (uint256) {
+        TestVars memory vars;
+
+        // Get current price and tick
+        (vars.sqrtPriceX96, vars.currentTick,,,,,) = pool.slot0();
+
+        vm.startPrank(user);
+
+        (uint256 a0, uint256 a1) = LiquidityAmounts.getAmountsForLiquidity(
+            vars.sqrtPriceX96, TickMath.getSqrtRatioAtTick(tickLower), TickMath.getSqrtRatioAtTick(tickUpper), liquidity
+        );
+
+        ETH.mint(user, a1);
+        ETH.approve(address(positionManager), a1);
+        USDC.mint(user, a0);
+        USDC.approve(address(positionManager), a0);
+
+        V3BaseHandler.MintPositionParams memory params = V3BaseHandler.MintPositionParams({
+            pool: IV3Pool(address(pool)),
+            hook: address(mockHook),
+            tickLower: tickLower,
+            tickUpper: tickUpper,
+            liquidity: liquidity
+        });
+
+        vars.sharesMinted = positionManager.mintPosition(IHandler(address(handler)), abi.encode(params, ""));
+
+        vm.stopPrank();
+
+        return vars.sharesMinted;
     }
 
     // Add this function to handle the swap callback
