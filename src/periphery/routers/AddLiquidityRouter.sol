@@ -8,6 +8,7 @@ import {IPositionManager} from "../../interfaces/IPositionManager.sol";
 import {IHandler} from "../../interfaces/IHandler.sol";
 import {IV3Pool} from "../../interfaces/handlers/V3/IV3Pool.sol";
 import {ERC6909} from "../../libraries/tokens/ERC6909.sol";
+import {IWETH} from "../../interfaces/IWETH.sol";
 
 contract AddLiquidityRouter is Multicall {
     using SafeERC20 for IERC20;
@@ -77,6 +78,11 @@ contract AddLiquidityRouter is Multicall {
         ERC6909(address(_handler)).transferFrom(
             address(this), msg.sender, tokenId, ERC6909(address(_handler)).balanceOf(address(this), tokenId)
         );
+    }
+
+    function wrap(address weth, uint256 amount) external payable {
+        IWETH(weth).deposit{value: amount}();
+        IERC20(weth).safeTransfer(msg.sender, amount);
     }
 
     function sweep(address _token) external {
