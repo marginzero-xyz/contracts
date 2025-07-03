@@ -32,6 +32,7 @@ import {LiquidityAmounts} from "v3-periphery/libraries/LiquidityAmounts.sol";
 import {Tick} from "@uniswap/v3-core/contracts/libraries/Tick.sol";
 
 import {OpenSettlement} from "../../src/periphery/OpenSettlement.sol";
+import {AddLiquidityRouter} from "../../src/periphery/routers/AddLiquidityRouter.sol";
 
 contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
     using TickMath for int24;
@@ -50,6 +51,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
     UniswapV3LiquidityManagement public uniswapV3LiquidityManagement;
 
     OpenSettlement public openSettlement;
+    AddLiquidityRouter public addLiquidityRouter;
 
     MockERC20 public USDC; // token0
     MockERC20 public ETH; // token1
@@ -192,6 +194,8 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
 
         positionManager.updateWhitelistHandlerWithApp(address(handler), address(optionMarketOTMFE), true);
 
+        addLiquidityRouter = new AddLiquidityRouter(address(positionManager));
+
         vm.stopPrank();
 
         // Initialize the pool with sqrtPriceX96 representing 1 ETH = 2000 USDC
@@ -267,7 +271,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
 
         vm.startPrank(user);
         ETH.mint(user, amount1Desired);
-        ETH.approve(address(positionManager), amount1Desired);
+        ETH.approve(address(addLiquidityRouter), amount1Desired);
         vars.balanceBefore.balance1 = ETH.balanceOf(user);
 
         vars.liquidity = LiquidityAmounts.getLiquidityForAmounts(
@@ -286,7 +290,18 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
             liquidity: vars.liquidity
         });
 
-        vars.sharesMinted = positionManager.mintPosition(IHandler(address(handler)), abi.encode(params, ""));
+        vars.sharesMinted = addLiquidityRouter.addLiquidity(
+            IHandler(address(handler)),
+            abi.encode(params, ""),
+            AddLiquidityRouter.RangeCheckData({
+                minTickLower: vars.currentTick - 10,
+                maxTickUpper: vars.currentTick + 10,
+                minSqrtPriceX96: vars.sqrtPriceX96 - 10,
+                maxSqrtPriceX96: vars.sqrtPriceX96 + 10,
+                deadline: block.timestamp + 1 hours
+            })
+        );
+
         assertTrue(vars.sharesMinted > 0, "Shares minted should be greater than 0");
 
         vars.tokenId =
@@ -350,7 +365,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
 
         vm.startPrank(user);
         USDC.mint(user, amount0Desired);
-        USDC.approve(address(positionManager), amount0Desired);
+        USDC.approve(address(addLiquidityRouter), amount0Desired);
         vars.balanceBefore.balance0 = USDC.balanceOf(user);
 
         vars.liquidity = LiquidityAmounts.getLiquidityForAmounts(
@@ -369,7 +384,17 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
             liquidity: vars.liquidity
         });
 
-        vars.sharesMinted = positionManager.mintPosition(IHandler(address(handler)), abi.encode(params, ""));
+        vars.sharesMinted = addLiquidityRouter.addLiquidity(
+            IHandler(address(handler)),
+            abi.encode(params, ""),
+            AddLiquidityRouter.RangeCheckData({
+                minTickLower: vars.currentTick - 10,
+                maxTickUpper: vars.currentTick + 10,
+                minSqrtPriceX96: vars.sqrtPriceX96 - 10,
+                maxSqrtPriceX96: vars.sqrtPriceX96 + 10,
+                deadline: block.timestamp + 1 hours
+            })
+        );
         assertTrue(vars.sharesMinted > 0, "Shares minted should be greater than 0");
 
         vars.tokenId =
