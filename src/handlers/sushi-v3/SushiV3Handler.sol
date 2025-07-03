@@ -6,6 +6,17 @@ import {LiquidityManager} from "./LiquidityManager.sol";
 
 import {IV3Pool} from "../../interfaces/handlers/V3/IV3Pool.sol";
 
+interface IMerklDistributor {
+    function claimWithRecipient(
+        address[] calldata users,
+        address[] calldata tokens,
+        uint256[] calldata amounts,
+        bytes32[][] calldata proofs,
+        address[] calldata recipients,
+        bytes[] memory datas
+    ) external;
+}
+
 /// @title SushiV3Handler
 /// @author 0xcarrot
 /// @notice Handles Sushi V3 specific operations
@@ -87,5 +98,17 @@ contract SushiV3Handler is V3BaseHandler, LiquidityManager {
         returns (uint256 amount0, uint256 amount1)
     {
         (amount0, amount1) = _pool.burn(tickLower, tickUpper, liquidity);
+    }
+
+    function claimMerklRewards(
+        address distributor,
+        address[] calldata users,
+        address[] calldata tokens,
+        uint256[] calldata amounts,
+        bytes32[][] calldata proofs,
+        address[] calldata recipients,
+        bytes[] memory datas
+    ) external onlyOwner {
+        IMerklDistributor(distributor).claimWithRecipient(users, tokens, amounts, proofs, recipients, datas);
     }
 }
