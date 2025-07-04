@@ -97,6 +97,7 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
     event LogUpdatePoolSettings(address feeTo, address tokenURIFetcher, address dpFee, address optionPricing);
     event LogUpdateApprovedSwapper(address swapper, bool status);
     event LogUpdateApprovedHook(address hook, bool status);
+    event LogUpdateApprovedMinter(address minter, bool status);
 
     // Errors
     error MaxOptionBuyReached();
@@ -116,6 +117,7 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
     error NotApprovedSwapper();
     error NotApprovedHook();
     error MinLiquidityToUse();
+    error NotApprovedMinter();
 
     /// @notice Counter for option IDs
     uint256 public optionIds;
@@ -179,6 +181,8 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
     mapping(address => bool) public approvedSwapper;
     /// @notice Mapping of approved hooks
     mapping(address => bool) public approvedHooks;
+    /// @notice Mapping of minter address to approval status
+    mapping(address => bool) public approvedMinters;
 
     /// @notice Constructor for the OptionMarketOTM_Fixed_Expiry_V1 contract
     /// @param _pm Address of the position manager
@@ -259,6 +263,10 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
 
         if (expiry - block.timestamp > _params.ttl - BUFFER_TIME) {
             revert InBUFFER_TIME();
+        }
+
+        if (!approvedMinters[msg.sender]) {
+            revert NotApprovedMinter();
         }
 
         uint256[] memory amountsPerOptionTicks = new uint256[](_params.optionTicks.length);
@@ -790,6 +798,11 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
         approvedHooks[hook] = statusHook;
         emit LogUpdateApprovedSwapper(swapper, statusSwapper);
         emit LogUpdateApprovedHook(hook, statusHook);
+    }
+
+    function setApprovedMinter(address minter, bool statusMinter) external onlyOwner {
+        approvedMinters[minter] = statusMinter;
+        emit LogUpdateApprovedMinter(minter, statusMinter);
     }
 
     /// @notice Emergency withdraw function
