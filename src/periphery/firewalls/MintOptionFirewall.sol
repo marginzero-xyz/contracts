@@ -50,6 +50,13 @@ contract MintOptionFirewall is Multicall, EIP712, Ownable, IERC721Receiver {
         int24 tick;
     }
 
+    struct OptionData {
+        IOptionMarketOTMFE market;
+        IOptionMarketOTMFE.OptionParams optionParams;
+        address optionRecipient;
+        bool self;
+    }
+
     bytes32 private constant RANGE_CHECK_TYPEHASH = keccak256(
         "RangeCheck(address user,address pool,int24 minTickLower,int24 maxTickUpper,uint160 minSqrtPriceX96,uint160 maxSprtPriceX96,uint256 deadline)"
     );
@@ -96,18 +103,8 @@ contract MintOptionFirewall is Multicall, EIP712, Ownable, IERC721Receiver {
         }
     }
 
-    /// @notice Mints an option through the specified option market
-    /// @param market The option market contract
-    /// @param optionParams The parameters for the option to be minted
-    /// @param optionRecipient The address that will receive the minted option
-    /// @param self Whether to transfer tokens through this contract first
-    /// @param rangeCheckData The range check data for the option
-    /// @param signature The signature of the range check data
     function mintOption(
-        IOptionMarketOTMFE market,
-        IOptionMarketOTMFE.OptionParams memory optionParams,
-        address optionRecipient,
-        bool self,
+        OptionData memory optionData,
         RangeCheckData[] calldata rangeCheckData,
         Signature[] calldata signature
     ) external {
@@ -115,40 +112,44 @@ contract MintOptionFirewall is Multicall, EIP712, Ownable, IERC721Receiver {
             revert InvalidSignatureLen();
         }
 
-        if (optionParams.optionTicks.length != rangeCheckData.length) {
+        if (optionData.optionParams.optionTicks.length != rangeCheckData.length) {
             revert InvalidSignatureLen();
         }
 
         for (uint256 i; i < rangeCheckData.length; i++) {
-            _checkRange(market, optionParams.optionTicks[i], rangeCheckData[i], signature[i]);
+            _checkRange(optionData.market, optionData.optionParams.optionTicks[i], rangeCheckData[i], signature[i]);
         }
 
-        address callAsset = market.callAsset();
-        address putAsset = market.putAsset();
+        address callAsset = optionData.market.callAsset();
+        address putAsset = optionData.market.putAsset();
 
-        if (!self) {
-            if (optionParams.isCall) {
-                IERC20(callAsset).safeTransferFrom(msg.sender, address(this), optionParams.maxCostAllowance);
-                IERC20(callAsset).approve(address(market), optionParams.maxCostAllowance);
+        if (!optionData.self) {
+            if (optionData.optionParams.isCall) {
+                IERC20(callAsset).safeTransferFrom(msg.sender, address(this), optionData.optionParams.maxCostAllowance);
+                IERC20(callAsset).approve(address(optionData.market), optionData.optionParams.maxCostAllowance);
             } else {
-                IERC20(putAsset).safeTransferFrom(msg.sender, address(this), optionParams.maxCostAllowance);
-                IERC20(putAsset).approve(address(market), optionParams.maxCostAllowance);
+                IERC20(putAsset).safeTransferFrom(msg.sender, address(this), optionData.optionParams.maxCostAllowance);
+                IERC20(putAsset).approve(address(optionData.market), optionData.optionParams.maxCostAllowance);
             }
         } else {
-            if (optionParams.isCall) {
-                IERC20(callAsset).safeIncreaseAllowance(address(market), optionParams.maxCostAllowance);
+            if (optionData.optionParams.isCall) {
+                IERC20(callAsset).safeIncreaseAllowance(
+                    address(optionData.market), optionData.optionParams.maxCostAllowance
+                );
             } else {
-                IERC20(putAsset).safeIncreaseAllowance(address(market), optionParams.maxCostAllowance);
+                IERC20(putAsset).safeIncreaseAllowance(
+                    address(optionData.market), optionData.optionParams.maxCostAllowance
+                );
             }
         }
 
-        market.mintOption(optionParams);
+        optionData.market.mintOption(optionData.optionParams);
 
-        uint256 tokenId = market.optionIds();
+        uint256 tokenId = optionData.market.optionIds();
 
-        IERC721(address(market)).transferFrom(address(this), optionRecipient, tokenId);
+        IERC721(address(optionData.market)).transferFrom(address(this), optionData.optionRecipient, tokenId);
 
-        emit MintOption(msg.sender, optionRecipient, address(market), tokenId);
+        emit MintOption(msg.sender, optionData.optionRecipient, address(optionData.market), tokenId);
     }
 
     /// @notice Sweeps any remaining tokens from the contract to a specified address

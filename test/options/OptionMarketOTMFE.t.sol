@@ -615,7 +615,14 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
 
         // Mint the option
         mintOptionFirewall.mintOption(
-            IOptionMarketOTMFE(address(optionMarketOTMFE)), params, trader, false, rangeCheckData, signature
+            MintOptionFirewall.OptionData({
+                market: IOptionMarketOTMFE(address(optionMarketOTMFE)),
+                optionParams: params,
+                optionRecipient: trader,
+                self: false
+            }),
+            rangeCheckData,
+            signature
         );
 
         // Record balances after minting
@@ -739,7 +746,14 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
 
         // Mint the option
         mintOptionFirewall.mintOption(
-            IOptionMarketOTMFE(address(optionMarketOTMFE)), params, trader, false, rangeCheckData, signature
+            MintOptionFirewall.OptionData({
+                market: IOptionMarketOTMFE(address(optionMarketOTMFE)),
+                optionParams: params,
+                optionRecipient: trader,
+                self: false
+            }),
+            rangeCheckData,
+            signature
         );
 
         // Record balances after minting
