@@ -162,4 +162,15 @@ interface IOptionMarketOTMFE {
     /// @notice Returns the option IDs
     /// @return uint256 The option IDs
     function optionIds() external view returns (uint256);
+
+    /// @notice Returns the option data
+    /// @param optionId The option ID
+    /// @return OptionData The option data
+    function opData(uint256 optionId) external view returns (OptionData memory);
+
+    /// @notice Returns the option ticks
+    /// @param optionId The option ID
+    /// @param index The index of the option tick
+    /// @return OptionTicks The option tick
+    function opTickMap(uint256 optionId, uint256 index) external view returns (OptionTicks memory);
 }
