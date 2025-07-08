@@ -45,7 +45,6 @@ contract MintOptionFirewall is Multicall, EIP712, Ownable, IERC721Receiver {
     }
 
     struct PoolData {
-        IV3Pool pool;
         uint160 sqrtPriceX96;
         int24 tick;
     }

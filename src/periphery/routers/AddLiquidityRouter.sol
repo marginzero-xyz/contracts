@@ -28,7 +28,6 @@ contract AddLiquidityRouter is Multicall {
     }
 
     struct PoolData {
-        IV3Pool pool;
         uint160 sqrtPriceX96;
         int24 tick;
     }
