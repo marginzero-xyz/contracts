@@ -46,8 +46,9 @@ contract AddLiquidityRouter is Multicall {
         }
 
         PoolData memory poolData;
-        poolData.pool = IV3Pool(abi.decode(_mintPositionData, (address)));
-        (poolData.sqrtPriceX96, poolData.tick,,,,,) = poolData.pool.slot0();
+        (, bytes memory result) =
+            address(abi.decode(_mintPositionData, (address))).staticcall(abi.encodeWithSignature("slot0()"));
+        (poolData.sqrtPriceX96, poolData.tick) = abi.decode(result, (uint160, int24));
 
         if (poolData.tick < _rangeCheckData.minTickLower || poolData.tick > _rangeCheckData.maxTickUpper) {
             revert InvalidTick();
