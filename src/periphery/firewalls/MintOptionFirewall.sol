@@ -45,7 +45,6 @@ contract MintOptionFirewall is Multicall, EIP712, Ownable, IERC721Receiver {
     }
 
     struct PoolData {
-        IV3Pool pool;
         uint160 sqrtPriceX96;
         int24 tick;
     }
@@ -197,8 +196,8 @@ contract MintOptionFirewall is Multicall, EIP712, Ownable, IERC721Receiver {
         }
 
         PoolData memory poolData;
-        poolData.pool = IV3Pool(address(optionTicks.pool));
-        (poolData.sqrtPriceX96, poolData.tick,,,,,) = poolData.pool.slot0();
+        (, bytes memory result) = address(optionTicks.pool).staticcall(abi.encodeWithSignature("slot0()"));
+        (poolData.sqrtPriceX96, poolData.tick) = abi.decode(result, (uint160, int24));
 
         if (poolData.tick < rangeCheckData.minTickLower || poolData.tick > rangeCheckData.maxTickUpper) {
             revert InvalidTick();

@@ -145,6 +145,9 @@ abstract contract V3BaseHandlerVe33Shadow is IHandler, ERC6909, Ownable {
     event LogDonateToPosition(DonateParams params, address context);
     event LogReservedLiquidity(ReserveOperation params, address context, uint256 lastReserve);
     event LogWithdrawReserveLiquidity(ReserveOperation params, address context, uint256 amount0, uint256 amount1);
+    event LogCollectedFees(
+        IV3Pool pool, address hook, int24 tickLower, int24 tickUpper, uint256 tokensOwed0, uint256 tokensOwed1
+    );
 
     /// @notice Constructor for V3BaseHandlerVe33
     /// @param _feeReceiver Address to receive fees
@@ -699,6 +702,8 @@ abstract contract V3BaseHandlerVe33Shadow is IHandler, ERC6909, Ownable {
         _removeLiquidity(_pool, _tickLower, _tickUpper, 0);
 
         _feeCalculation(tki, _pool, _tickLower, _tickUpper);
+
+        emit LogCollectedFees(_pool, _hook, _tickLower, _tickUpper, tki.tokensOwed0, tki.tokensOwed1);
 
         IRamsesV3Pool(address(_pool)).collect(
             feeReceiver, uint256(0), _tickLower, _tickUpper, tki.tokensOwed0, tki.tokensOwed1
