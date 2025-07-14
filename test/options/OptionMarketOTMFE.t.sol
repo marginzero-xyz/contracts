@@ -32,6 +32,10 @@ import {LiquidityAmounts} from "v3-periphery/libraries/LiquidityAmounts.sol";
 import {Tick} from "@uniswap/v3-core/contracts/libraries/Tick.sol";
 
 import {OpenSettlement} from "../../src/periphery/OpenSettlement.sol";
+import {AddLiquidityRouter} from "../../src/periphery/routers/AddLiquidityRouter.sol";
+
+import {MintOptionFirewall} from "../../src/periphery/firewalls/MintOptionFirewall.sol";
+import {ExerciseOptionFirewall} from "../../src/periphery/firewalls/ExerciseOptionFirewall.sol";
 
 contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
     using TickMath for int24;
@@ -50,6 +54,9 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
     UniswapV3LiquidityManagement public uniswapV3LiquidityManagement;
 
     OpenSettlement public openSettlement;
+    AddLiquidityRouter public addLiquidityRouter;
+    MintOptionFirewall public mintOptionFirewall;
+    ExerciseOptionFirewall public exerciseOptionFirewall;
 
     MockERC20 public USDC; // token0
     MockERC20 public ETH; // token1
@@ -70,6 +77,9 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
     address public settler = makeAddr("settler");
 
     address public garbage = makeAddr("garbage");
+
+    uint256 verifiedSignerPrivateKey = uint256(keccak256("verifiedSigner"));
+    address verifiedSigner = vm.addr(verifiedSignerPrivateKey);
 
     IUniswapV3Pool public pool;
 
@@ -141,6 +151,9 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
 
         poolSpotPrice = new PoolSpotPrice();
 
+        mintOptionFirewall = new MintOptionFirewall(verifiedSigner);
+        exerciseOptionFirewall = new ExerciseOptionFirewall(verifiedSigner);
+
         optionMarketOTMFE = new OptionMarketOTMFE(
             owner,
             address(positionManager),
@@ -151,6 +164,8 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
             address(pool),
             address(poolSpotPrice)
         );
+
+        exerciseOptionFirewall.updateWhitelistedMarket(address(optionMarketOTMFE), true);
 
         optionPricingLinearV2.updateVolatilityOffset(address(optionMarketOTMFE), 10_000);
         optionPricingLinearV2.updateVolatilityMultiplier(address(optionMarketOTMFE), 1_000);
@@ -170,12 +185,11 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
 
         openSettlement = new OpenSettlement(owner, settler, publicFeeRecipient, 1000, 500);
 
-        optionMarketOTMFE.updatePoolApporvals(settler, true, address(pool), true, 86400, 1729065600, true, 10 minutes);
         optionMarketOTMFE.updatePoolApporvals(
-            address(openSettlement), true, address(pool), true, 86400, 1729065600, true, 10 minutes
+            address(exerciseOptionFirewall), true, address(pool), true, 86400, 1729065600, true, 10 minutes
         );
         optionMarketOTMFE.updatePoolApporvals(
-            address(trader), true, address(pool), true, 86400, 1729065600, true, 10 minutes
+            address(openSettlement), true, address(pool), true, 86400, 1729065600, true, 10 minutes
         );
 
         optionMarketOTMFE.updatePoolSettings(
@@ -192,7 +206,11 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
 
         optionMarketOTMFE.setApprovedSwapperAndHook(address(this), true, address(mockHook), true);
 
+        optionMarketOTMFE.setApprovedMinter(address(mintOptionFirewall), true);
+
         positionManager.updateWhitelistHandlerWithApp(address(handler), address(optionMarketOTMFE), true);
+
+        addLiquidityRouter = new AddLiquidityRouter(address(positionManager));
 
         vm.stopPrank();
 
@@ -269,7 +287,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
 
         vm.startPrank(user);
         ETH.mint(user, amount1Desired);
-        ETH.approve(address(positionManager), amount1Desired);
+        ETH.approve(address(addLiquidityRouter), amount1Desired);
         vars.balanceBefore.balance1 = ETH.balanceOf(user);
 
         vars.liquidity = LiquidityAmounts.getLiquidityForAmounts(
@@ -288,7 +306,18 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
             liquidity: vars.liquidity
         });
 
-        vars.sharesMinted = positionManager.mintPosition(IHandler(address(handler)), abi.encode(params, ""));
+        vars.sharesMinted = addLiquidityRouter.addLiquidity(
+            IHandler(address(handler)),
+            abi.encode(params, ""),
+            AddLiquidityRouter.RangeCheckData({
+                minTickLower: vars.currentTick - 10,
+                maxTickUpper: vars.currentTick + 10,
+                minSqrtPriceX96: vars.sqrtPriceX96 - 10,
+                maxSqrtPriceX96: vars.sqrtPriceX96 + 10,
+                deadline: block.timestamp + 1 hours
+            })
+        );
+
         assertTrue(vars.sharesMinted > 0, "Shares minted should be greater than 0");
 
         vars.tokenId =
@@ -352,7 +381,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
 
         vm.startPrank(user);
         USDC.mint(user, amount0Desired);
-        USDC.approve(address(positionManager), amount0Desired);
+        USDC.approve(address(addLiquidityRouter), amount0Desired);
         vars.balanceBefore.balance0 = USDC.balanceOf(user);
 
         vars.liquidity = LiquidityAmounts.getLiquidityForAmounts(
@@ -371,7 +400,17 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
             liquidity: vars.liquidity
         });
 
-        vars.sharesMinted = positionManager.mintPosition(IHandler(address(handler)), abi.encode(params, ""));
+        vars.sharesMinted = addLiquidityRouter.addLiquidity(
+            IHandler(address(handler)),
+            abi.encode(params, ""),
+            AddLiquidityRouter.RangeCheckData({
+                minTickLower: vars.currentTick - 10,
+                maxTickUpper: vars.currentTick + 10,
+                minSqrtPriceX96: vars.sqrtPriceX96 - 10,
+                maxSqrtPriceX96: vars.sqrtPriceX96 + 10,
+                deadline: block.timestamp + 1 hours
+            })
+        );
         assertTrue(vars.sharesMinted > 0, "Shares minted should be greater than 0");
 
         vars.tokenId =
@@ -496,8 +535,8 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         vars.tickLower = vars.tickUpper - 1 * tickSpacing;
 
         // Prepare option parameters
-        OptionMarketOTMFE.OptionTicks[] memory optionTicks = new OptionMarketOTMFE.OptionTicks[](1);
-        optionTicks[0] = OptionMarketOTMFE.OptionTicks({
+        IOptionMarketOTMFE.OptionTicks[] memory optionTicks = new IOptionMarketOTMFE.OptionTicks[](1);
+        optionTicks[0] = IOptionMarketOTMFE.OptionTicks({
             _handler: IHandler(address(handler)),
             pool: pool,
             hook: address(mockHook),
@@ -506,7 +545,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
             liquidityToUse: uint128(vars.sharesMinted)
         });
 
-        OptionMarketOTMFE.OptionParams memory params = OptionMarketOTMFE.OptionParams({
+        IOptionMarketOTMFE.OptionParams memory params = IOptionMarketOTMFE.OptionParams({
             optionTicks: optionTicks,
             tickLower: vars.tickLower,
             tickUpper: vars.tickUpper,
@@ -541,14 +580,52 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         // Approve ETH spending for premium payment
         vm.startPrank(trader);
         ETH.mint(trader, expectedPremium + expectedFees);
-        ETH.approve(address(optionMarketOTMFE), expectedPremium + expectedFees);
+        ETH.approve(address(mintOptionFirewall), expectedPremium + expectedFees);
+
+        MintOptionFirewall.Signature[] memory signature = new MintOptionFirewall.Signature[](1);
+
+        (signature[0].v, signature[0].r, signature[0].s) = _createSignature(
+            trader,
+            handler.getHandlerIdentifier(abi.encode(address(pool), address(mockHook), vars.tickLower, vars.tickUpper)),
+            MintOptionFirewall.RangeCheckData({
+                user: trader,
+                pool: address(pool),
+                market: address(optionMarketOTMFE),
+                minTickLower: vars.currentTick - 10,
+                maxTickUpper: vars.currentTick + 10,
+                minSqrtPriceX96: vars.sqrtPriceX96 - 10,
+                maxSqrtPriceX96: vars.sqrtPriceX96 + 10,
+                deadline: block.timestamp + 1 hours
+            })
+        );
 
         // Record balances before minting
         uint256 traderETHBefore = ETH.balanceOf(trader);
         uint256 marketETHBefore = ETH.balanceOf(address(optionMarketOTMFE));
 
+        MintOptionFirewall.RangeCheckData[] memory rangeCheckData = new MintOptionFirewall.RangeCheckData[](1);
+        rangeCheckData[0] = MintOptionFirewall.RangeCheckData({
+            user: trader,
+            pool: address(pool),
+            market: address(optionMarketOTMFE),
+            minTickLower: vars.currentTick - 10,
+            maxTickUpper: vars.currentTick + 10,
+            minSqrtPriceX96: vars.sqrtPriceX96 - 10,
+            maxSqrtPriceX96: vars.sqrtPriceX96 + 10,
+            deadline: block.timestamp + 1 hours
+        });
+
         // Mint the option
-        optionMarketOTMFE.mintOption(params);
+        mintOptionFirewall.mintOption(
+            MintOptionFirewall.OptionData({
+                market: IOptionMarketOTMFE(address(optionMarketOTMFE)),
+                optionParams: params,
+                optionRecipient: trader,
+                self: false
+            }),
+            rangeCheckData,
+            signature
+        );
 
         // Record balances after minting
         uint256 traderETHAfter = ETH.balanceOf(trader);
@@ -590,8 +667,8 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         vars.tickUpper = vars.tickLower + 1 * tickSpacing;
 
         // Prepare option parameters
-        OptionMarketOTMFE.OptionTicks[] memory optionTicks = new OptionMarketOTMFE.OptionTicks[](1);
-        optionTicks[0] = OptionMarketOTMFE.OptionTicks({
+        IOptionMarketOTMFE.OptionTicks[] memory optionTicks = new IOptionMarketOTMFE.OptionTicks[](1);
+        optionTicks[0] = IOptionMarketOTMFE.OptionTicks({
             _handler: IHandler(address(handler)),
             pool: pool,
             hook: address(mockHook),
@@ -600,7 +677,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
             liquidityToUse: uint128(vars.sharesMinted)
         });
 
-        OptionMarketOTMFE.OptionParams memory params = OptionMarketOTMFE.OptionParams({
+        IOptionMarketOTMFE.OptionParams memory params = IOptionMarketOTMFE.OptionParams({
             optionTicks: optionTicks,
             tickLower: vars.tickLower,
             tickUpper: vars.tickUpper,
@@ -635,14 +712,51 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         // Approve USDC spending for premium payment
         vm.startPrank(trader);
         USDC.mint(trader, expectedPremium + expectedFees);
-        USDC.approve(address(optionMarketOTMFE), expectedPremium + expectedFees);
+        USDC.approve(address(mintOptionFirewall), expectedPremium + expectedFees);
 
+        MintOptionFirewall.Signature[] memory signature = new MintOptionFirewall.Signature[](1);
+
+        (signature[0].v, signature[0].r, signature[0].s) = _createSignature(
+            trader,
+            handler.getHandlerIdentifier(abi.encode(address(pool), address(mockHook), vars.tickLower, vars.tickUpper)),
+            MintOptionFirewall.RangeCheckData({
+                user: trader,
+                pool: address(pool),
+                market: address(optionMarketOTMFE),
+                minTickLower: vars.currentTick - 10,
+                maxTickUpper: vars.currentTick + 10,
+                minSqrtPriceX96: vars.sqrtPriceX96 - 10,
+                maxSqrtPriceX96: vars.sqrtPriceX96 + 10,
+                deadline: block.timestamp + 1 hours
+            })
+        );
         // Record balances before minting
         uint256 traderUSDCBefore = USDC.balanceOf(trader);
         uint256 marketUSDCBefore = USDC.balanceOf(address(optionMarketOTMFE));
 
+        MintOptionFirewall.RangeCheckData[] memory rangeCheckData = new MintOptionFirewall.RangeCheckData[](1);
+        rangeCheckData[0] = MintOptionFirewall.RangeCheckData({
+            user: trader,
+            pool: address(pool),
+            market: address(optionMarketOTMFE),
+            minTickLower: vars.currentTick - 10,
+            maxTickUpper: vars.currentTick + 10,
+            minSqrtPriceX96: vars.sqrtPriceX96 - 10,
+            maxSqrtPriceX96: vars.sqrtPriceX96 + 10,
+            deadline: block.timestamp + 1 hours
+        });
+
         // Mint the option
-        optionMarketOTMFE.mintOption(params);
+        mintOptionFirewall.mintOption(
+            MintOptionFirewall.OptionData({
+                market: IOptionMarketOTMFE(address(optionMarketOTMFE)),
+                optionParams: params,
+                optionRecipient: trader,
+                self: false
+            }),
+            rangeCheckData,
+            signature
+        );
 
         // Record balances after minting
         uint256 traderUSDCAfter = USDC.balanceOf(trader);
@@ -695,6 +809,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         );
 
         vm.stopPrank();
+        (vars.sqrtPriceX96, vars.currentTick,,,,,) = pool.slot0();
 
         // Prepare for exercise
         uint256 optionId = 1; // Assuming this is the first option minted
@@ -708,19 +823,49 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         bytes[] memory swapData = new bytes[](1);
         swapData[0] = ""; // No swap data needed
 
-        OptionMarketOTMFE.SettleOptionParams memory settleParams = OptionMarketOTMFE.SettleOptionParams({
+        IOptionMarketOTMFE.SettleOptionParams memory settleParams = IOptionMarketOTMFE.SettleOptionParams({
             optionId: optionId,
             swapper: swappers,
             swapData: swapData,
             liquidityToSettle: liquidityToSettle
         });
 
+        ExerciseOptionFirewall.RangeCheckData[] memory rangeCheckData = new ExerciseOptionFirewall.RangeCheckData[](1);
+        rangeCheckData[0] = ExerciseOptionFirewall.RangeCheckData({
+            user: trader,
+            pool: address(pool),
+            market: address(optionMarketOTMFE),
+            minTickLower: vars.currentTick - 10,
+            maxTickUpper: vars.currentTick + 10,
+            minSqrtPriceX96: vars.sqrtPriceX96 - 10,
+            maxSqrtPriceX96: vars.sqrtPriceX96 + 10,
+            deadline: block.timestamp + 1 hours
+        });
+
+        ExerciseOptionFirewall.Signature[] memory signature = new ExerciseOptionFirewall.Signature[](1);
+        (signature[0].v, signature[0].r, signature[0].s) = _createSignatureExercise(
+            trader,
+            handler.getHandlerIdentifier(abi.encode(address(pool), address(mockHook), vars.tickLower, vars.tickUpper)),
+            ExerciseOptionFirewall.RangeCheckData({
+                user: trader,
+                pool: address(pool),
+                market: address(optionMarketOTMFE),
+                minTickLower: vars.currentTick - 10,
+                maxTickUpper: vars.currentTick + 10,
+                minSqrtPriceX96: vars.sqrtPriceX96 - 10,
+                maxSqrtPriceX96: vars.sqrtPriceX96 + 10,
+                deadline: block.timestamp + 1 hours
+            })
+        );
+
         // Exercise the option
         vm.startPrank(trader);
         vars.balanceBefore.balance0 = USDC.balanceOf(trader);
         vars.balanceBefore.balance1 = ETH.balanceOf(trader);
 
-        OptionMarketOTMFE.AssetsCache memory result = optionMarketOTMFE.settleOption(settleParams);
+        IOptionMarketOTMFE.AssetsCache memory result = exerciseOptionFirewall.exerciseOption(
+            IOptionMarketOTMFE(address(optionMarketOTMFE)), optionId, settleParams, rangeCheckData, signature
+        );
 
         vars.balanceAfter.balance0 = USDC.balanceOf(trader);
         vars.balanceAfter.balance1 = ETH.balanceOf(trader);
@@ -774,6 +919,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         );
 
         vm.stopPrank();
+        (vars.sqrtPriceX96, vars.currentTick,,,,,) = pool.slot0();
 
         // Prepare for exercise
         uint256 optionId = 1; // Assuming this is the first option minted
@@ -787,20 +933,49 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         bytes[] memory swapData = new bytes[](1);
         swapData[0] = ""; // No swap data needed
 
-        OptionMarketOTMFE.SettleOptionParams memory settleParams = OptionMarketOTMFE.SettleOptionParams({
+        IOptionMarketOTMFE.SettleOptionParams memory settleParams = IOptionMarketOTMFE.SettleOptionParams({
             optionId: optionId,
             swapper: swappers,
             swapData: swapData,
             liquidityToSettle: liquidityToSettle
         });
 
+        ExerciseOptionFirewall.RangeCheckData[] memory rangeCheckData = new ExerciseOptionFirewall.RangeCheckData[](1);
+        rangeCheckData[0] = ExerciseOptionFirewall.RangeCheckData({
+            user: trader,
+            pool: address(pool),
+            market: address(optionMarketOTMFE),
+            minTickLower: vars.currentTick - 10,
+            maxTickUpper: vars.currentTick + 10,
+            minSqrtPriceX96: vars.sqrtPriceX96 - 10,
+            maxSqrtPriceX96: vars.sqrtPriceX96 + 10,
+            deadline: block.timestamp + 1 hours
+        });
+
+        ExerciseOptionFirewall.Signature[] memory signature = new ExerciseOptionFirewall.Signature[](1);
+        (signature[0].v, signature[0].r, signature[0].s) = _createSignatureExercise(
+            trader,
+            handler.getHandlerIdentifier(abi.encode(address(pool), address(mockHook), vars.tickLower, vars.tickUpper)),
+            ExerciseOptionFirewall.RangeCheckData({
+                user: trader,
+                pool: address(pool),
+                market: address(optionMarketOTMFE),
+                minTickLower: vars.currentTick - 10,
+                maxTickUpper: vars.currentTick + 10,
+                minSqrtPriceX96: vars.sqrtPriceX96 - 10,
+                maxSqrtPriceX96: vars.sqrtPriceX96 + 10,
+                deadline: block.timestamp + 1 hours
+            })
+        );
+
         // Exercise the option
         vm.startPrank(trader);
         vars.balanceBefore.balance0 = USDC.balanceOf(trader);
         vars.balanceBefore.balance1 = ETH.balanceOf(trader);
 
-        OptionMarketOTMFE.AssetsCache memory result = optionMarketOTMFE.settleOption(settleParams);
-
+        IOptionMarketOTMFE.AssetsCache memory result = exerciseOptionFirewall.exerciseOption(
+            IOptionMarketOTMFE(address(optionMarketOTMFE)), optionId, settleParams, rangeCheckData, signature
+        );
         vars.balanceAfter.balance0 = USDC.balanceOf(trader);
         vars.balanceAfter.balance1 = ETH.balanceOf(trader);
         vm.stopPrank();
@@ -866,7 +1041,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         bytes[] memory swapData = new bytes[](1);
         swapData[0] = ""; // No swap data needed
 
-        OptionMarketOTMFE.SettleOptionParams memory settleParams = OptionMarketOTMFE.SettleOptionParams({
+        IOptionMarketOTMFE.SettleOptionParams memory settleParams = IOptionMarketOTMFE.SettleOptionParams({
             optionId: optionId,
             swapper: swappers,
             swapData: swapData,
@@ -874,12 +1049,12 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         });
 
         // Exercise the option
-        vm.startPrank(settler);
+        vm.startPrank(verifiedSigner);
         vars.balanceBefore.balance0 = USDC.balanceOf(trader);
         vars.balanceBefore.balance1 = ETH.balanceOf(trader);
 
-        OptionMarketOTMFE.AssetsCache memory result = optionMarketOTMFE.settleOption(settleParams);
-        USDC.transfer(address(trader), result.totalProfit);
+        IOptionMarketOTMFE.AssetsCache memory result =
+            exerciseOptionFirewall.settleOption(IOptionMarketOTMFE(address(optionMarketOTMFE)), optionId, settleParams);
 
         vars.balanceAfter.balance0 = USDC.balanceOf(trader);
         vars.balanceAfter.balance1 = ETH.balanceOf(trader);
@@ -1007,7 +1182,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         bytes[] memory swapData = new bytes[](1);
         swapData[0] = ""; // No swap data needed
 
-        OptionMarketOTMFE.SettleOptionParams memory settleParams = OptionMarketOTMFE.SettleOptionParams({
+        IOptionMarketOTMFE.SettleOptionParams memory settleParams = IOptionMarketOTMFE.SettleOptionParams({
             optionId: optionId,
             swapper: swappers,
             swapData: swapData,
@@ -1015,12 +1190,12 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         });
 
         // Exercise the option
-        vm.startPrank(settler);
+        vm.startPrank(verifiedSigner);
         vars.balanceBefore.balance0 = USDC.balanceOf(trader);
         vars.balanceBefore.balance1 = ETH.balanceOf(trader);
 
-        OptionMarketOTMFE.AssetsCache memory result = optionMarketOTMFE.settleOption(settleParams);
-        ETH.transfer(address(trader), result.totalProfit);
+        IOptionMarketOTMFE.AssetsCache memory result =
+            exerciseOptionFirewall.settleOption(IOptionMarketOTMFE(address(optionMarketOTMFE)), optionId, settleParams);
 
         vars.balanceAfter.balance0 = USDC.balanceOf(trader);
         vars.balanceAfter.balance1 = ETH.balanceOf(trader);
@@ -1071,7 +1246,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         bytes[] memory swapData = new bytes[](1);
         swapData[0] = ""; // No swap data needed
 
-        OptionMarketOTMFE.SettleOptionParams memory settleParams = OptionMarketOTMFE.SettleOptionParams({
+        IOptionMarketOTMFE.SettleOptionParams memory settleParams = IOptionMarketOTMFE.SettleOptionParams({
             optionId: optionId,
             swapper: swappers,
             swapData: swapData,
@@ -1079,11 +1254,12 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         });
 
         // Exercise the option
-        vm.startPrank(settler);
+        vm.startPrank(verifiedSigner);
         vars.balanceBefore.balance0 = USDC.balanceOf(trader);
         vars.balanceBefore.balance1 = ETH.balanceOf(trader);
 
-        OptionMarketOTMFE.AssetsCache memory result = optionMarketOTMFE.settleOption(settleParams);
+        IOptionMarketOTMFE.AssetsCache memory result =
+            exerciseOptionFirewall.settleOption(IOptionMarketOTMFE(address(optionMarketOTMFE)), optionId, settleParams);
 
         vars.balanceAfter.balance0 = USDC.balanceOf(trader);
         vars.balanceAfter.balance1 = ETH.balanceOf(trader);
@@ -1200,7 +1376,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         bytes[] memory swapData = new bytes[](1);
         swapData[0] = ""; // No swap data needed
 
-        OptionMarketOTMFE.SettleOptionParams memory settleParams = OptionMarketOTMFE.SettleOptionParams({
+        IOptionMarketOTMFE.SettleOptionParams memory settleParams = IOptionMarketOTMFE.SettleOptionParams({
             optionId: optionId,
             swapper: swappers,
             swapData: swapData,
@@ -1208,11 +1384,12 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         });
 
         // Exercise the option
-        vm.startPrank(settler);
+        vm.startPrank(verifiedSigner);
         vars.balanceBefore.balance0 = USDC.balanceOf(trader);
         vars.balanceBefore.balance1 = ETH.balanceOf(trader);
 
-        OptionMarketOTMFE.AssetsCache memory result = optionMarketOTMFE.settleOption(settleParams);
+        IOptionMarketOTMFE.AssetsCache memory result =
+            exerciseOptionFirewall.settleOption(IOptionMarketOTMFE(address(optionMarketOTMFE)), optionId, settleParams);
 
         vars.balanceAfter.balance0 = USDC.balanceOf(trader);
         vars.balanceAfter.balance1 = ETH.balanceOf(trader);
@@ -1311,6 +1488,54 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         } else if (amount1Delta > 0) {
             ETH.transfer(msg.sender, uint256(amount1Delta));
         }
+    }
+
+    function _createSignature(
+        address _user,
+        uint256 _handlerIdentifierId,
+        MintOptionFirewall.RangeCheckData memory _rangeData
+    ) internal view returns (uint8 v, bytes32 r, bytes32 s) {
+        bytes32 structHash = keccak256(
+            abi.encode(
+                mintOptionFirewall.getRangeCheckTypehash(),
+                _user,
+                _rangeData.pool,
+                address(optionMarketOTMFE),
+                _rangeData.minTickLower,
+                _rangeData.maxTickUpper,
+                _rangeData.minSqrtPriceX96,
+                _rangeData.maxSqrtPriceX96,
+                _rangeData.deadline
+            )
+        );
+
+        bytes32 digest = mintOptionFirewall.hashTypedDataV4(structHash);
+
+        return vm.sign(verifiedSignerPrivateKey, digest);
+    }
+
+    function _createSignatureExercise(
+        address _user,
+        uint256 _handlerIdentifierId,
+        ExerciseOptionFirewall.RangeCheckData memory _rangeData
+    ) internal view returns (uint8 v, bytes32 r, bytes32 s) {
+        bytes32 structHash = keccak256(
+            abi.encode(
+                exerciseOptionFirewall.getRangeCheckTypehash(),
+                _user,
+                _rangeData.pool,
+                address(optionMarketOTMFE),
+                _rangeData.minTickLower,
+                _rangeData.maxTickUpper,
+                _rangeData.minSqrtPriceX96,
+                _rangeData.maxSqrtPriceX96,
+                _rangeData.deadline
+            )
+        );
+
+        bytes32 digest = exerciseOptionFirewall.hashTypedDataV4(structHash);
+
+        return vm.sign(verifiedSignerPrivateKey, digest);
     }
 
     function onSwapReceived(address _tokenIn, address _tokenOut, uint256 _amountIn, bytes calldata _swapData)
