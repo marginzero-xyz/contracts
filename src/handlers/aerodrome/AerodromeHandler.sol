@@ -1,29 +1,27 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity >=0.8.0 <0.9.0;
 
-import {V3BaseHandlerKodiak} from "../V3BaseHandlerKodiak.sol";
+import {V3BaseHandlerAerodrome} from "../V3BaseHandlerAerodrome.sol";
 import {LiquidityManager} from "./LiquidityManager.sol";
 
-import {IUniswapV3Pool as IV3Pool} from "./IUniswapV3Pool.sol";
-import {IUniswapV3Pool} from "./IUniswapV3Pool.sol";
+import {ICLPool as IV3Pool} from "./ICLPool.sol";
 
-/// @title UniswapV3Handler
+/// @title AerodromeHandler
 /// @author arcwardeth
-/// @notice Handles Kodiak V3 specific operations
-/// @dev Inherits from V3BaseHandlerKodiak and LiquidityManager
-contract KodiakV3Handler is V3BaseHandlerKodiak, LiquidityManager {
-    /// @notice Constructs the UniswapV3Handler contract
+/// @notice Handles Aerodrome V3 specific operations
+/// @dev Inherits from V3BaseHandlerAerodrome and LiquidityManager
+contract AerodromeHandler is V3BaseHandlerAerodrome, LiquidityManager {
+    /// @notice Constructs the AerodromeHandler contract
     /// @param _owner Address of the contract owner
     /// @param _feeReceiver Address to receive fees
-    /// @param _factory Address of the Kodiak V3 factory
-    /// @param _pool_init_code_hash Initialization code hash for Kodiak V3 pools
-    constructor(address _owner, address _feeReceiver, address _factory, bytes32 _pool_init_code_hash)
-        V3BaseHandlerKodiak(_owner, _feeReceiver)
-        LiquidityManager(_factory, _pool_init_code_hash)
+    /// @param _factory Address of the Aerodrome factory
+    constructor(address _owner, address _feeReceiver, address _factory)
+        V3BaseHandlerAerodrome(_owner, _feeReceiver)
+        LiquidityManager(_factory)
     {}
 
-    /// @notice Adds liquidity to a Kodiak V3 pool
-    /// @dev Overrides the _addLiquidity function from V3BaseHandler
+    /// @notice Adds liquidity to a Aerodrome pool
+    /// @dev Overrides the _addLiquidity function from V3BaseHandlerAerodrome
     /// @param self Whether the function is called internally or externally
     /// @param tki TokenIdInfo struct containing token and fee information
     /// @param tickLower The lower tick of the position
@@ -46,7 +44,7 @@ contract KodiakV3Handler is V3BaseHandlerKodiak, LiquidityManager {
                 LiquidityManager.AddLiquidityParams({
                     token0: tki.token0,
                     token1: tki.token1,
-                    fee: tki.fee,
+                    tickSpacing: tki.tickSpacing,
                     recipient: address(this),
                     tickLower: tickLower,
                     tickUpper: tickUpper,
@@ -57,11 +55,11 @@ contract KodiakV3Handler is V3BaseHandlerKodiak, LiquidityManager {
                 })
             );
         } else {
-            (l, a0, a1,) = KodiakV3Handler(address(this)).addLiquidity(
+            (l, a0, a1,) = AerodromeHandler(address(this)).addLiquidity(
                 LiquidityManager.AddLiquidityParams({
                     token0: tki.token0,
                     token1: tki.token1,
-                    fee: tki.fee,
+                    tickSpacing: tki.tickSpacing,
                     recipient: address(this),
                     tickLower: tickLower,
                     tickUpper: tickUpper,
@@ -74,9 +72,9 @@ contract KodiakV3Handler is V3BaseHandlerKodiak, LiquidityManager {
         }
     }
 
-    /// @notice Removes liquidity from a Kodiak V3 pool
-    /// @dev Overrides the _removeLiquidity function from V3BaseHandler
-    /// @param _pool The Kodiak V3 pool
+    /// @notice Removes liquidity from a Aerodrome pool
+    /// @dev Overrides the _removeLiquidity function from V3BaseHandlerAerodrome
+    /// @param _pool The Aerodrome pool
     /// @param tickLower The lower tick of the position
     /// @param tickUpper The upper tick of the position
     /// @param liquidity The amount of liquidity to remove
@@ -88,6 +86,6 @@ contract KodiakV3Handler is V3BaseHandlerKodiak, LiquidityManager {
         override
         returns (uint256 amount0, uint256 amount1)
     {
-        (amount0, amount1) = IUniswapV3Pool(address(_pool)).burn(tickLower, tickUpper, liquidity);
+        (amount0, amount1) = _pool.burn(tickLower, tickUpper, liquidity);
     }
 }
