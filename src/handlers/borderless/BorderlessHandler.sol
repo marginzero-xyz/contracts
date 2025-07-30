@@ -4,7 +4,7 @@ pragma solidity >=0.8.0 <0.9.0;
 import {V3BaseHandlerKodiak} from "../V3BaseHandlerKodiak.sol";
 import {LiquidityManager} from "./LiquidityManager.sol";
 
-import {IBubblySwapPool as IV3Pool} from "./IBubblySwapPool.sol";
+import {IUniswapV3Pool as IV3Pool} from "../kodiak-v3/IUniswapV3Pool.sol";
 
 /// @title UniswapV3Handler
 /// @author arcwardeth

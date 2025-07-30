@@ -3,15 +3,14 @@ pragma solidity ^0.8.0;
 
 import "forge-std/Test.sol";
 
-import {KodiakV3Handler} from "../../src/handlers/kodiak-v3/KodiakV3Handler.sol";
+import {BorderlessHandler} from "../../src/handlers/borderless/BorderlessHandler.sol";
 import {PositionManager} from "../../src/PositionManager.sol";
 import {OptionMarketOTMFE} from "../../src/apps/options/OptionMarketOTMFE.sol";
 import {OptionPricingLinearV2} from "../../src/apps/options/pricing/OptionPricingLinearV2.sol";
 import {ClammFeeStrategyV2} from "../../src/apps/options/pricing/fees/ClammFeeStrategyV2.sol";
 
 import {UniswapV3PoolUtils} from "../../test/handlers/kodiak-v3/kodiak-v3-utils/UniswapV3PoolUtils.sol";
-import {KodiakV3LiquidityManagement} from
-    "../../test/handlers/kodiak-v3/kodiak-v3-utils/KodiakV3LiquidityManagement.sol";
+import {BorderlessLiquidityManagement} from "../../test/handlers/borderless/BorderlessLiquidityManagement.sol";
 import {IUniswapV3Factory} from "../../test/handlers/kodiak-v3/kodiak-v3-utils/IUniswapV3Factory.sol";
 
 import {IUniswapV3Pool as KodiakV3Pool} from "../../test/handlers/kodiak-v3/kodiak-v3-utils/IUniswapV3Pool.sol";
@@ -37,21 +36,20 @@ import {AddLiquidityRouter} from "../../src/periphery/routers/AddLiquidityRouter
 import {MintOptionFirewall} from "../../src/periphery/firewalls/MintOptionFirewall.sol";
 import {ExerciseOptionFirewall} from "../../src/periphery/firewalls/ExerciseOptionFirewall.sol";
 
-contract KodiakHandlerOptionMarketOTMFE is Test {
+contract BorderlessHandlerOptionMarketOTMFE is Test {
     using TickMath for int24;
 
     PositionManager public positionManager;
-    KodiakV3Handler public handler;
+    BorderlessHandler public handler;
 
     OptionMarketOTMFE public optionMarketOTMFE;
     OptionPricingLinearV2 public optionPricingLinearV2;
     ClammFeeStrategyV2 public clammFeeStrategyV2;
 
-    address factory = 0xD84CBf0B02636E7f53dB9E5e45A616E05d710990;
-    bytes32 PAIR_INIT_CODE_HASH = 0xd8e2091bc519b509176fc39aeb148cc8444418d3ce260820edc44e806c2c2339;
+    address factory = 0x7d87F4b4d5F997737E93A41E0EbbB55c2D2d2bb4;
 
     UniswapV3PoolUtils public uniswapV3PoolUtils;
-    KodiakV3LiquidityManagement public kodiakV3LiquidityManagement;
+    BorderlessLiquidityManagement public borderlessLiquidityManagement;
 
     OpenSettlement public openSettlement;
     AddLiquidityRouter public addLiquidityRouter;
@@ -68,7 +66,7 @@ contract KodiakHandlerOptionMarketOTMFE is Test {
 
     address public publicFeeRecipient = makeAddr("publicFeeRecipient");
 
-    address public owner = makeAddr("owner");
+    address public owner = 0xAc9B1Bb01297e90528B22E837E9FfB28E2487439;
 
     address public user = makeAddr("user");
 
@@ -88,7 +86,7 @@ contract KodiakHandlerOptionMarketOTMFE is Test {
     PoolSpotPrice public poolSpotPrice;
 
     function setUp() public {
-        vm.createSelectFork(vm.envString("BERACHAIN_RPC_URL"), 850217);
+        vm.createSelectFork(vm.envString("INJECTIVE_TESTNET_RPC_URL"), 86469265);
 
         // Deploy mock tokens for testing
         ETH = new MockERC20("Ethereum", "ETH", 18);
@@ -96,7 +94,7 @@ contract KodiakHandlerOptionMarketOTMFE is Test {
 
         uniswapV3PoolUtils = new UniswapV3PoolUtils();
 
-        kodiakV3LiquidityManagement = new KodiakV3LiquidityManagement((factory));
+        borderlessLiquidityManagement = new BorderlessLiquidityManagement((factory));
 
         uint160 sqrtPriceX96 = 1771595571142957166518320255467520;
         pool = IUniswapV3Pool(
@@ -105,7 +103,7 @@ contract KodiakHandlerOptionMarketOTMFE is Test {
 
         uniswapV3PoolUtils.addLiquidity(
             UniswapV3PoolUtils.AddLiquidityStruct({
-                liquidityManager: address(kodiakV3LiquidityManagement),
+                liquidityManager: address(borderlessLiquidityManagement),
                 pool: address(pool),
                 user: owner,
                 desiredAmount0: 10_000_000e6,
@@ -121,11 +119,10 @@ contract KodiakHandlerOptionMarketOTMFE is Test {
         positionManager = new PositionManager(owner);
 
         // Deploy the Uniswap V3 handler with additional arguments
-        handler = new KodiakV3Handler(
+        handler = new BorderlessHandler(
             owner,
             feeReceiver, // _feeReceiver
-            address(factory), // _factory
-            0xd8e2091bc519b509176fc39aeb148cc8444418d3ce260820edc44e806c2c2339
+            address(factory) // _factory
         );
         // Whitelist the handler
         positionManager.updateWhitelistHandler(address(handler), true);
@@ -1470,7 +1467,7 @@ contract KodiakHandlerOptionMarketOTMFE is Test {
     }
 
     // Add this function to handle the swap callback
-    function uniswapV3SwapCallback(int256 amount0Delta, int256 amount1Delta, bytes calldata) external {
+    function BubblySwapSwapCallback(int256 amount0Delta, int256 amount1Delta, bytes calldata) external {
         if (amount0Delta > 0) {
             USDC.transfer(msg.sender, uint256(amount0Delta));
         } else if (amount1Delta > 0) {

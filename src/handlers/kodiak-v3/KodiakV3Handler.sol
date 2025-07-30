@@ -5,7 +5,6 @@ import {V3BaseHandlerKodiak} from "../V3BaseHandlerKodiak.sol";
 import {LiquidityManager} from "./LiquidityManager.sol";
 
 import {IUniswapV3Pool as IV3Pool} from "./IUniswapV3Pool.sol";
-import {IUniswapV3Pool} from "./IUniswapV3Pool.sol";
 
 /// @title UniswapV3Handler
 /// @author arcwardeth
@@ -88,6 +87,6 @@ contract KodiakV3Handler is V3BaseHandlerKodiak, LiquidityManager {
         override
         returns (uint256 amount0, uint256 amount1)
     {
-        (amount0, amount1) = IUniswapV3Pool(address(_pool)).burn(tickLower, tickUpper, liquidity);
+        (amount0, amount1) = _pool.burn(tickLower, tickUpper, liquidity);
     }
 }

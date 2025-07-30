@@ -2,9 +2,9 @@
 pragma solidity ^0.8.13;
 
 // Interfaces
-import {IBubblySwapFactory} from "./IBubblySwapFactory.sol";
-import {IBubblySwapMintCallback} from "./IBubblySwapMintCallback.sol";
-import {IUniswapV3Pool} from "../kodiak-v3/IUniswapV3Pool.sol";
+import {IBubblySwapFactory} from "../../../src/handlers/borderless/IBubblySwapFactory.sol";
+import {IBubblySwapMintCallback} from "../../../src/handlers/borderless/IBubblySwapMintCallback.sol";
+import {IUniswapV3Pool} from "../../../src/handlers/kodiak-v3/IUniswapV3Pool.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 
 // Libraries
@@ -14,7 +14,7 @@ import {TickMath} from "@uniswap/v3-core/contracts/libraries/TickMath.sol";
 
 /// @title Liquidity management functions
 /// @notice Internal functions for safely managing liquidity in Uniswap V3
-abstract contract LiquidityManager is IBubblySwapMintCallback {
+contract BorderlessLiquidityManagement is IBubblySwapMintCallback {
     address public immutable factory;
 
     struct PoolKey {
