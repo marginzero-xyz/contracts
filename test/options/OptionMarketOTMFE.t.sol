@@ -256,6 +256,28 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         uint64 lastFeeAccrued;
     }
 
+    function testSwapNoLiq() public {
+        IUniswapV3Pool pool2 = IUniswapV3Pool(uniswapV3PoolUtils.deployAndInitializePool(factory, ETH, USDC, 3000, 1771595571142957166518320255467520));
+
+        (uint160 sqrtPriceX96, int24 currentTick,,,,,) = pool2.slot0();
+
+        console.log("sqrtPriceX96", sqrtPriceX96);
+        console.log("currentTick", currentTick);
+
+        pool2.swap(
+            address(0xD3AD),
+            false,
+            int256(1),
+            TickMath.MAX_SQRT_RATIO - 1, // Swap to the upper tick
+            ""
+        );
+
+        (uint160 sqrtPriceX962, int24 currentTick2,,,,,) = pool2.slot0();
+
+        console.log("sqrtPriceX96", sqrtPriceX962);
+        console.log("currentTick", currentTick2);
+    }
+
     function testPoolDeployment() public {
         assertTrue(address(pool) != address(0), "Pool was not deployed");
 
