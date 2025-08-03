@@ -13,4 +13,5 @@ docs/
 # Dotenv file
 .env
 
-# scripts
+scripts
+broadcast
