@@ -65,10 +65,7 @@ contract OptionPricingLinearV2 is Ownable {
     /// @param _optionsMarket The address of the options market
     /// @param _volatilityOffset the new offset
     /// @return whether offset was updated
-    function updateVolatilityOffset(address _optionsMarket, uint256 _volatilityOffset)
-        external
-        returns (bool)
-    {
+    function updateVolatilityOffset(address _optionsMarket, uint256 _volatilityOffset) external returns (bool) {
         if (!ivSetter[msg.sender]) revert NotIVSetter();
         volatilityOffset[_optionsMarket] = _volatilityOffset;
 
