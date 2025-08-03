@@ -56,8 +56,8 @@ contract ExerciseOptionFirewall is Multicall, Ownable, EIP712 {
         "RangeCheck(address user,address pool,int24 minTickLower,int24 maxTickUpper,uint160 minSqrtPriceX96,uint160 maxSprtPriceX96,uint256 deadline)"
     );
 
-    constructor(address _signer) EIP712("ExerciseOptionFirewall", "1") Ownable(msg.sender) {
-        whitelistedExecutors[_signer] = true;
+    constructor(address _owner) EIP712("ExerciseOptionFirewall", "1") Ownable(_owner) {
+        whitelistedExecutors[_owner] = true;
     }
 
     function updateWhitelistedExecutor(address executor, bool isWhitelisted) external onlyOwner {

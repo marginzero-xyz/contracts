@@ -67,9 +67,9 @@ contract OptionPricingLinearV2 is Ownable {
     /// @return whether offset was updated
     function updateVolatilityOffset(address _optionsMarket, uint256 _volatilityOffset)
         external
-        onlyOwner
         returns (bool)
     {
+        if (!ivSetter[msg.sender]) revert NotIVSetter();
         volatilityOffset[_optionsMarket] = _volatilityOffset;
 
         return true;
@@ -81,9 +81,10 @@ contract OptionPricingLinearV2 is Ownable {
     /// @return whether multiplier was updated
     function updateVolatilityMultiplier(address _optionsMarket, uint256 _volatilityMultiplier)
         external
-        onlyOwner
         returns (bool)
     {
+        if (!ivSetter[msg.sender]) revert NotIVSetter();
+
         volatilityMultiplier[_optionsMarket] = _volatilityMultiplier;
 
         return true;
@@ -95,9 +96,9 @@ contract OptionPricingLinearV2 is Ownable {
     /// @return whether % was updated
     function updateMinOptionPricePercentage(address _optionsMarket, uint256 _minOptionPricePercentage)
         external
-        onlyOwner
         returns (bool)
     {
+        if (!ivSetter[msg.sender]) revert NotIVSetter();
         minOptionPricePercentage[_optionsMarket] = _minOptionPricePercentage;
 
         return true;
