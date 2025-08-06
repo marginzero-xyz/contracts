@@ -17,7 +17,7 @@ contract ClammFeeStrategyV2 is IClammFeeStrategyV2, Ownable {
     /// @dev The precision in which fee percent is set (fee percent should always be divided by 1e6 to get the correct vaue)
     uint256 public constant FEE_PERCENT_PRECISION = 1e4;
 
-    constructor() Ownable(msg.sender) {}
+    constructor(address _owner) Ownable(_owner) {}
 
     /// @notice Registers an option market with the fee strategy
     /// @dev Can only be called by owner.

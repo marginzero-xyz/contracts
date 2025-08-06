@@ -2,33 +2,31 @@
 pragma solidity ^0.8.0;
 
 import "forge-std/Test.sol";
-import {UniswapV3Handler} from "../../../src/handlers/uniswap-v3/UniswapV3Handler.sol";
+import {BorderlessHandler} from "../../../src/handlers/borderless/BorderlessHandler.sol";
 import {PositionManager} from "../../../src/PositionManager.sol";
-import {UniswapV3FactoryDeployer} from "./uniswap-v3-utils/UniswapV3FactoryDeployer.sol";
 
-import {UniswapV3PoolUtils} from "./uniswap-v3-utils/UniswapV3PoolUtils.sol";
-import {UniswapV3LiquidityManagement} from "./uniswap-v3-utils/UniswapV3LiquidityManagement.sol";
+import {UniswapV3PoolUtils} from "../kodiak-v3/kodiak-v3-utils/UniswapV3PoolUtils.sol";
+import {BorderlessLiquidityManagement} from "./BorderlessLiquidityManagement.sol";
 
-import {IUniswapV3Factory} from "@uniswap/v3-core/contracts/interfaces/IUniswapV3Factory.sol";
-import {IUniswapV3Pool} from "@uniswap/v3-core/contracts/interfaces/IUniswapV3Pool.sol";
 import {MockERC20} from "../../mocks/MockERC20.sol";
-import {IV3Pool} from "../../../src/interfaces/handlers/V3/IV3Pool.sol";
-import {V3BaseHandler} from "../../../src/handlers/V3BaseHandler.sol";
-import {IHandler} from "../../../src/interfaces/IHandler.sol";
+import {V3BaseHandlerKodiak} from "../../../src/handlers/V3BaseHandlerKodiak.sol";
 import {TickMath} from "@uniswap/v3-core/contracts/libraries/TickMath.sol";
 import {LiquidityAmounts} from "v3-periphery/libraries/LiquidityAmounts.sol";
-import {Tick} from "@uniswap/v3-core/contracts/libraries/Tick.sol";
 
-contract UniswapV3HandlerTest is Test, UniswapV3FactoryDeployer {
+import {IUniswapV3Pool as IV3Pool} from "../../../src/handlers/kodiak-v3/IUniswapV3Pool.sol";
+import {Tick} from "@uniswap/v3-core/contracts/libraries/Tick.sol";
+import {IHandler} from "../../../src/interfaces/IHandler.sol";
+import {IUniswapV3Factory} from "../kodiak-v3/kodiak-v3-utils/IUniswapV3Factory.sol";
+import {IUniswapV3Pool} from "../../../src/handlers/kodiak-v3/IUniswapV3Pool.sol";
+
+contract BorderlessHandlerTest is Test {
     using TickMath for int24;
 
     PositionManager public positionManager;
-    UniswapV3Handler public handler;
-    UniswapV3FactoryDeployer public factoryDeployer;
-    IUniswapV3Factory public factory;
+    BorderlessHandler public handler;
 
-    UniswapV3PoolUtils public uniswapV3PoolUtils;
-    UniswapV3LiquidityManagement public uniswapV3LiquidityManagement;
+    UniswapV3PoolUtils public kodiakV3PoolUtils;
+    BorderlessLiquidityManagement public kodiakV3LiquidityManagement;
 
     MockERC20 public USDC; // token0
     MockERC20 public ETH; // token1
@@ -38,32 +36,33 @@ contract UniswapV3HandlerTest is Test, UniswapV3FactoryDeployer {
 
     address public feeReceiver = makeAddr("feeReceiver");
 
-    address public owner = makeAddr("owner");
+    address public owner = 0xAc9B1Bb01297e90528B22E837E9FfB28E2487439;
 
     IUniswapV3Pool public pool;
 
     function setUp() public {
-        // Deploy the Uniswap V3 Factory
-        factory = IUniswapV3Factory(deployUniswapV3Factory());
+        vm.createSelectFork(vm.envString("INJECTIVE_TESTNET_RPC_URL"), 86469265);
 
-        uniswapV3PoolUtils = new UniswapV3PoolUtils();
+        address factory = 0x7d87F4b4d5F997737E93A41E0EbbB55c2D2d2bb4;
 
-        uniswapV3LiquidityManagement = new UniswapV3LiquidityManagement(address(factory));
+        // factory
+        kodiakV3PoolUtils = new UniswapV3PoolUtils();
+
+        kodiakV3LiquidityManagement = new BorderlessLiquidityManagement(factory);
 
         // Deploy mock tokens for testing
-        USDC = new MockERC20("USD Coin", "USDC", 6);
         ETH = new MockERC20("Ethereum", "ETH", 18);
+        USDC = new MockERC20("USD Coin", "USDC", 6);
 
         vm.startPrank(owner);
 
         positionManager = new PositionManager(owner);
 
         // Deploy the Uniswap V3 handler with additional arguments
-        handler = new UniswapV3Handler(
+        handler = new BorderlessHandler(
             owner,
             feeReceiver, // _feeReceiver
-            address(factory), // _factory
-            0xa598dd2fba360510c5a8f02f44423a4468e902df5857dbce3ca162a43a3a31ff
+            factory // _deployer
         );
         // Whitelist the handler
         positionManager.updateWhitelistHandler(address(handler), true);
@@ -76,12 +75,14 @@ contract UniswapV3HandlerTest is Test, UniswapV3FactoryDeployer {
 
         // Initialize the pool with sqrtPriceX96 representing 1 ETH = 2000 USDC
         uint160 sqrtPriceX96 = 1771595571142957166518320255467520;
-        pool = IUniswapV3Pool(uniswapV3PoolUtils.deployAndInitializePool(factory, ETH, USDC, 500, sqrtPriceX96));
+        pool = IUniswapV3Pool(
+            kodiakV3PoolUtils.deployAndInitializePool(IUniswapV3Factory(factory), ETH, USDC, 500, sqrtPriceX96)
+        );
 
-        uniswapV3PoolUtils.addLiquidity(
+        kodiakV3PoolUtils.addLiquidity(
             UniswapV3PoolUtils.AddLiquidityStruct({
-                liquidityManager: address(uniswapV3LiquidityManagement),
-                pool: pool,
+                liquidityManager: address(kodiakV3LiquidityManagement),
+                pool: address(pool),
                 user: owner,
                 desiredAmount0: 100000000e6,
                 desiredAmount1: 100 ether,
@@ -162,7 +163,7 @@ contract UniswapV3HandlerTest is Test, UniswapV3FactoryDeployer {
             amount1Desired
         );
 
-        V3BaseHandler.MintPositionParams memory params = V3BaseHandler.MintPositionParams({
+        V3BaseHandlerKodiak.MintPositionParams memory params = V3BaseHandlerKodiak.MintPositionParams({
             pool: IV3Pool(address(pool)),
             hook: address(0),
             tickLower: vars.tickLower,
@@ -261,7 +262,7 @@ contract UniswapV3HandlerTest is Test, UniswapV3FactoryDeployer {
             amount1Desired
         );
 
-        V3BaseHandler.MintPositionParams memory params = V3BaseHandler.MintPositionParams({
+        V3BaseHandlerKodiak.MintPositionParams memory params = V3BaseHandlerKodiak.MintPositionParams({
             pool: IV3Pool(address(pool)),
             hook: address(0),
             tickLower: vars.tickLower,
@@ -341,7 +342,7 @@ contract UniswapV3HandlerTest is Test, UniswapV3FactoryDeployer {
             amount1Desired
         );
 
-        V3BaseHandler.MintPositionParams memory params = V3BaseHandler.MintPositionParams({
+        V3BaseHandlerKodiak.MintPositionParams memory params = V3BaseHandlerKodiak.MintPositionParams({
             pool: IV3Pool(address(pool)),
             hook: address(0),
             tickLower: vars.tickLower,
@@ -443,7 +444,7 @@ contract UniswapV3HandlerTest is Test, UniswapV3FactoryDeployer {
             amount1Desired
         );
 
-        V3BaseHandler.MintPositionParams memory params = V3BaseHandler.MintPositionParams({
+        V3BaseHandlerKodiak.MintPositionParams memory params = V3BaseHandlerKodiak.MintPositionParams({
             pool: IV3Pool(address(pool)),
             hook: address(0),
             tickLower: vars.tickLower,
@@ -544,7 +545,7 @@ contract UniswapV3HandlerTest is Test, UniswapV3FactoryDeployer {
         vars.balanceBefore.balance0 = USDC.balanceOf(owner);
         vars.balanceBefore.balance1 = ETH.balanceOf(owner);
 
-        V3BaseHandler.MintPositionParams memory params = V3BaseHandler.MintPositionParams({
+        V3BaseHandlerKodiak.MintPositionParams memory params = V3BaseHandlerKodiak.MintPositionParams({
             pool: IV3Pool(address(pool)),
             hook: address(0),
             tickLower: vars.tickLower,
@@ -597,11 +598,9 @@ contract UniswapV3HandlerTest is Test, UniswapV3FactoryDeployer {
         assertEq(
             vars.balanceBefore.balance1 - vars.balanceAfter.balance1, amount1, "Exact amount of ETH should be spent"
         );
-
         (uint128 poolLiquidity,,,,) =
             pool.positions(keccak256(abi.encodePacked(address(handler), vars.tickLower, vars.tickUpper)));
         assertEq(poolLiquidity, info.totalLiquidity, "Pool liquidity should match total liquidity in handler");
-
         vm.stopPrank();
     }
 
@@ -654,7 +653,7 @@ contract UniswapV3HandlerTest is Test, UniswapV3FactoryDeployer {
         vars.balanceBefore.balance0 = USDC.balanceOf(owner);
         vars.balanceBefore.balance1 = ETH.balanceOf(owner);
 
-        V3BaseHandler.MintPositionParams memory params = V3BaseHandler.MintPositionParams({
+        V3BaseHandlerKodiak.MintPositionParams memory params = V3BaseHandlerKodiak.MintPositionParams({
             pool: IV3Pool(address(pool)),
             hook: address(0),
             tickLower: vars.tickLower,
@@ -740,7 +739,7 @@ contract UniswapV3HandlerTest is Test, UniswapV3FactoryDeployer {
             amount1Desired
         );
 
-        V3BaseHandler.MintPositionParams memory mintParams = V3BaseHandler.MintPositionParams({
+        V3BaseHandlerKodiak.MintPositionParams memory mintParams = V3BaseHandlerKodiak.MintPositionParams({
             pool: IV3Pool(address(pool)),
             hook: address(0),
             tickLower: vars.tickLower,
@@ -756,7 +755,7 @@ contract UniswapV3HandlerTest is Test, UniswapV3FactoryDeployer {
         uint256 sharesBurned = vars.sharesMinted / 2; // Burn half of the shares
         uint256 balanceBefore = USDC.balanceOf(owner);
 
-        V3BaseHandler.BurnPositionParams memory burnParams = V3BaseHandler.BurnPositionParams({
+        V3BaseHandlerKodiak.BurnPositionParams memory burnParams = V3BaseHandlerKodiak.BurnPositionParams({
             pool: IV3Pool(address(pool)),
             hook: address(0),
             tickLower: vars.tickLower,
@@ -798,7 +797,7 @@ contract UniswapV3HandlerTest is Test, UniswapV3FactoryDeployer {
             amount1Desired
         );
 
-        V3BaseHandler.MintPositionParams memory mintParams = V3BaseHandler.MintPositionParams({
+        V3BaseHandlerKodiak.MintPositionParams memory mintParams = V3BaseHandlerKodiak.MintPositionParams({
             pool: IV3Pool(address(pool)),
             hook: address(0),
             tickLower: vars.tickLower,
@@ -814,7 +813,7 @@ contract UniswapV3HandlerTest is Test, UniswapV3FactoryDeployer {
         uint256 sharesBurned = vars.sharesMinted / 2; // Burn half of the shares
         uint256 balanceBefore = ETH.balanceOf(owner);
 
-        V3BaseHandler.BurnPositionParams memory burnParams = V3BaseHandler.BurnPositionParams({
+        V3BaseHandlerKodiak.BurnPositionParams memory burnParams = V3BaseHandlerKodiak.BurnPositionParams({
             pool: IV3Pool(address(pool)),
             hook: address(0),
             tickLower: vars.tickLower,
@@ -873,7 +872,7 @@ contract UniswapV3HandlerTest is Test, UniswapV3FactoryDeployer {
         USDC.approve(address(positionManager), amount0);
         ETH.approve(address(positionManager), amount1);
 
-        V3BaseHandler.MintPositionParams memory mintParams = V3BaseHandler.MintPositionParams({
+        V3BaseHandlerKodiak.MintPositionParams memory mintParams = V3BaseHandlerKodiak.MintPositionParams({
             pool: IV3Pool(address(pool)),
             hook: address(0),
             tickLower: vars.tickLower,
@@ -890,7 +889,7 @@ contract UniswapV3HandlerTest is Test, UniswapV3FactoryDeployer {
         uint256 balanceBefore0 = USDC.balanceOf(owner);
         uint256 balanceBefore1 = ETH.balanceOf(owner);
 
-        V3BaseHandler.BurnPositionParams memory burnParams = V3BaseHandler.BurnPositionParams({
+        V3BaseHandlerKodiak.BurnPositionParams memory burnParams = V3BaseHandlerKodiak.BurnPositionParams({
             pool: IV3Pool(address(pool)),
             hook: address(0),
             tickLower: vars.tickLower,
@@ -931,7 +930,7 @@ contract UniswapV3HandlerTest is Test, UniswapV3FactoryDeployer {
         uint256 balanceBefore = USDC.balanceOf(owner);
 
         vm.startPrank(owner);
-        V3BaseHandler.BurnPositionParams memory burnParams = V3BaseHandler.BurnPositionParams({
+        V3BaseHandlerKodiak.BurnPositionParams memory burnParams = V3BaseHandlerKodiak.BurnPositionParams({
             pool: IV3Pool(address(pool)),
             hook: address(0),
             tickLower: vars.tickLower,
@@ -970,7 +969,7 @@ contract UniswapV3HandlerTest is Test, UniswapV3FactoryDeployer {
         uint256 balanceBefore = ETH.balanceOf(owner);
 
         vm.startPrank(owner);
-        V3BaseHandler.BurnPositionParams memory burnParams = V3BaseHandler.BurnPositionParams({
+        V3BaseHandlerKodiak.BurnPositionParams memory burnParams = V3BaseHandlerKodiak.BurnPositionParams({
             pool: IV3Pool(address(pool)),
             hook: address(0),
             tickLower: vars.tickLower,
@@ -1010,7 +1009,7 @@ contract UniswapV3HandlerTest is Test, UniswapV3FactoryDeployer {
         uint256 balanceBefore1 = ETH.balanceOf(owner);
 
         vm.startPrank(owner);
-        V3BaseHandler.BurnPositionParams memory burnParams = V3BaseHandler.BurnPositionParams({
+        V3BaseHandlerKodiak.BurnPositionParams memory burnParams = V3BaseHandlerKodiak.BurnPositionParams({
             pool: IV3Pool(address(pool)),
             hook: address(0),
             tickLower: vars.tickLower,
@@ -1061,7 +1060,7 @@ contract UniswapV3HandlerTest is Test, UniswapV3FactoryDeployer {
         USDC.approve(address(positionManager), amount0);
         ETH.approve(address(positionManager), amount1);
 
-        V3BaseHandler.UsePositionParams memory useParams = V3BaseHandler.UsePositionParams({
+        V3BaseHandlerKodiak.UsePositionParams memory useParams = V3BaseHandlerKodiak.UsePositionParams({
             pool: IV3Pool(address(pool)),
             hook: address(0),
             tickLower: vars.tickLower,
@@ -1078,7 +1077,7 @@ contract UniswapV3HandlerTest is Test, UniswapV3FactoryDeployer {
         assertEq(liquidityUsed, sharesToUse, "Liquidity used should match shares used");
 
         // Unuse position
-        V3BaseHandler.UnusePositionParams memory unuseParams = V3BaseHandler.UnusePositionParams({
+        V3BaseHandlerKodiak.UnusePositionParams memory unuseParams = V3BaseHandlerKodiak.UnusePositionParams({
             pool: IV3Pool(address(pool)),
             hook: address(0),
             tickLower: vars.tickLower,
@@ -1132,7 +1131,7 @@ contract UniswapV3HandlerTest is Test, UniswapV3FactoryDeployer {
         USDC.approve(address(positionManager), amount0);
         ETH.approve(address(positionManager), amount1);
 
-        V3BaseHandler.UsePositionParams memory useParams = V3BaseHandler.UsePositionParams({
+        V3BaseHandlerKodiak.UsePositionParams memory useParams = V3BaseHandlerKodiak.UsePositionParams({
             pool: IV3Pool(address(pool)),
             hook: address(0),
             tickLower: vars.tickLower,
@@ -1149,7 +1148,7 @@ contract UniswapV3HandlerTest is Test, UniswapV3FactoryDeployer {
         assertEq(liquidityUsed, sharesToUse, "Liquidity used should match shares used");
 
         // Unuse position
-        V3BaseHandler.UnusePositionParams memory unuseParams = V3BaseHandler.UnusePositionParams({
+        V3BaseHandlerKodiak.UnusePositionParams memory unuseParams = V3BaseHandlerKodiak.UnusePositionParams({
             pool: IV3Pool(address(pool)),
             hook: address(0),
             tickLower: vars.tickLower,
@@ -1202,7 +1201,7 @@ contract UniswapV3HandlerTest is Test, UniswapV3FactoryDeployer {
         USDC.approve(address(positionManager), amount0);
         ETH.approve(address(positionManager), amount1);
 
-        V3BaseHandler.UsePositionParams memory useParams = V3BaseHandler.UsePositionParams({
+        V3BaseHandlerKodiak.UsePositionParams memory useParams = V3BaseHandlerKodiak.UsePositionParams({
             pool: IV3Pool(address(pool)),
             hook: address(0),
             tickLower: vars.tickLower,
@@ -1219,7 +1218,7 @@ contract UniswapV3HandlerTest is Test, UniswapV3FactoryDeployer {
         assertEq(liquidityUsed, sharesToUse, "Liquidity used should match shares used");
 
         // Unuse position
-        V3BaseHandler.UnusePositionParams memory unuseParams = V3BaseHandler.UnusePositionParams({
+        V3BaseHandlerKodiak.UnusePositionParams memory unuseParams = V3BaseHandlerKodiak.UnusePositionParams({
             pool: IV3Pool(address(pool)),
             hook: address(0),
             tickLower: vars.tickLower,
@@ -1275,7 +1274,7 @@ contract UniswapV3HandlerTest is Test, UniswapV3FactoryDeployer {
         USDC.approve(address(positionManager), amount0);
         ETH.approve(address(positionManager), amount1);
 
-        V3BaseHandler.UsePositionParams memory useParams = V3BaseHandler.UsePositionParams({
+        V3BaseHandlerKodiak.UsePositionParams memory useParams = V3BaseHandlerKodiak.UsePositionParams({
             pool: IV3Pool(address(pool)),
             hook: address(0),
             tickLower: vars.tickLower,
@@ -1292,7 +1291,7 @@ contract UniswapV3HandlerTest is Test, UniswapV3FactoryDeployer {
         assertEq(liquidityUsed, sharesToUse, "Liquidity used should match shares used");
 
         // Unuse position
-        V3BaseHandler.UnusePositionParams memory unuseParams = V3BaseHandler.UnusePositionParams({
+        V3BaseHandlerKodiak.UnusePositionParams memory unuseParams = V3BaseHandlerKodiak.UnusePositionParams({
             pool: IV3Pool(address(pool)),
             hook: address(0),
             tickLower: vars.tickLower,
@@ -1348,7 +1347,7 @@ contract UniswapV3HandlerTest is Test, UniswapV3FactoryDeployer {
         USDC.approve(address(positionManager), amount0);
         ETH.approve(address(positionManager), amount1);
 
-        V3BaseHandler.UsePositionParams memory useParams = V3BaseHandler.UsePositionParams({
+        V3BaseHandlerKodiak.UsePositionParams memory useParams = V3BaseHandlerKodiak.UsePositionParams({
             pool: IV3Pool(address(pool)),
             hook: address(0),
             tickLower: vars.tickLower,
@@ -1365,7 +1364,7 @@ contract UniswapV3HandlerTest is Test, UniswapV3FactoryDeployer {
         assertEq(liquidityUsed, sharesToUse, "Liquidity used should match shares used");
 
         // Unuse position
-        V3BaseHandler.UnusePositionParams memory unuseParams = V3BaseHandler.UnusePositionParams({
+        V3BaseHandlerKodiak.UnusePositionParams memory unuseParams = V3BaseHandlerKodiak.UnusePositionParams({
             pool: IV3Pool(address(pool)),
             hook: address(0),
             tickLower: vars.tickLower,
@@ -1421,7 +1420,7 @@ contract UniswapV3HandlerTest is Test, UniswapV3FactoryDeployer {
         USDC.approve(address(positionManager), amount0);
         ETH.approve(address(positionManager), amount1);
 
-        V3BaseHandler.UsePositionParams memory useParams = V3BaseHandler.UsePositionParams({
+        V3BaseHandlerKodiak.UsePositionParams memory useParams = V3BaseHandlerKodiak.UsePositionParams({
             pool: IV3Pool(address(pool)),
             hook: address(0),
             tickLower: vars.tickLower,
@@ -1438,7 +1437,7 @@ contract UniswapV3HandlerTest is Test, UniswapV3FactoryDeployer {
         assertEq(liquidityUsed, sharesToUse, "Liquidity used should match shares used");
 
         // Unuse position
-        V3BaseHandler.UnusePositionParams memory unuseParams = V3BaseHandler.UnusePositionParams({
+        V3BaseHandlerKodiak.UnusePositionParams memory unuseParams = V3BaseHandlerKodiak.UnusePositionParams({
             pool: IV3Pool(address(pool)),
             hook: address(0),
             tickLower: vars.tickLower,
@@ -1482,7 +1481,7 @@ contract UniswapV3HandlerTest is Test, UniswapV3FactoryDeployer {
         vars.sharesMinted = handler.balanceOf(owner, vars.tokenId);
 
         // Use all the liquidity
-        V3BaseHandler.UsePositionParams memory useParams = V3BaseHandler.UsePositionParams({
+        V3BaseHandlerKodiak.UsePositionParams memory useParams = V3BaseHandlerKodiak.UsePositionParams({
             pool: IV3Pool(address(pool)),
             hook: address(0),
             tickLower: vars.tickLower,
@@ -1493,7 +1492,7 @@ contract UniswapV3HandlerTest is Test, UniswapV3FactoryDeployer {
         positionManager.usePosition(IHandler(address(handler)), abi.encode(useParams, ""));
 
         // Attempt to burn (should fail due to no available liquidity)
-        V3BaseHandler.BurnPositionParams memory burnParams = V3BaseHandler.BurnPositionParams({
+        V3BaseHandlerKodiak.BurnPositionParams memory burnParams = V3BaseHandlerKodiak.BurnPositionParams({
             pool: IV3Pool(address(pool)),
             hook: address(0),
             tickLower: vars.tickLower,
@@ -1502,12 +1501,12 @@ contract UniswapV3HandlerTest is Test, UniswapV3FactoryDeployer {
         });
 
         vm.prank(owner);
-        vm.expectRevert(V3BaseHandler.InsufficientLiquidity.selector);
+        vm.expectRevert(V3BaseHandlerKodiak.InsufficientLiquidity.selector);
         positionManager.burnPosition(IHandler(address(handler)), abi.encode(burnParams, ""));
 
         // Reserve liquidity using wildcard function
         uint256 sharesToReserve = vars.sharesMinted / 2; // Reserve half of the shares
-        V3BaseHandler.ReserveOperation memory reserveParams = V3BaseHandler.ReserveOperation({
+        V3BaseHandlerKodiak.ReserveOperation memory reserveParams = V3BaseHandlerKodiak.ReserveOperation({
             pool: IV3Pool(address(pool)),
             hook: address(0),
             tickLower: vars.tickLower,
@@ -1517,7 +1516,7 @@ contract UniswapV3HandlerTest is Test, UniswapV3FactoryDeployer {
         });
 
         bytes memory reserveData =
-            abi.encode(V3BaseHandler.WildcardActions.RESERVE_LIQUIDITY, abi.encode(reserveParams));
+            abi.encode(V3BaseHandlerKodiak.WildcardActions.RESERVE_LIQUIDITY, abi.encode(reserveParams));
         vm.prank(owner);
         positionManager.wildcard(IHandler(address(handler)), reserveData);
 
@@ -1525,7 +1524,7 @@ contract UniswapV3HandlerTest is Test, UniswapV3FactoryDeployer {
         uint256 remainingShares = handler.balanceOf(owner, vars.tokenId);
         assertEq(remainingShares, vars.sharesMinted - sharesToReserve, "Shares should be burned after reserving");
 
-        reserveParams = V3BaseHandler.ReserveOperation({
+        reserveParams = V3BaseHandlerKodiak.ReserveOperation({
             pool: IV3Pool(address(pool)),
             hook: address(0),
             tickLower: vars.tickLower,
@@ -1536,13 +1535,13 @@ contract UniswapV3HandlerTest is Test, UniswapV3FactoryDeployer {
 
         // Attempt to withdraw reserved liquidity before cooldown period (should fail)
         bytes memory withdrawData =
-            abi.encode(V3BaseHandler.WildcardActions.RESERVE_LIQUIDITY, abi.encode(reserveParams));
-        vm.expectRevert(V3BaseHandler.BeforeReserveCooldown.selector);
+            abi.encode(V3BaseHandlerKodiak.WildcardActions.RESERVE_LIQUIDITY, abi.encode(reserveParams));
+        vm.expectRevert(V3BaseHandlerKodiak.BeforeReserveCooldown.selector);
         vm.prank(owner);
         positionManager.wildcard(IHandler(address(handler)), withdrawData);
 
         // Return some liquidity to the handler
-        V3BaseHandler.UnusePositionParams memory unuseParams = V3BaseHandler.UnusePositionParams({
+        V3BaseHandlerKodiak.UnusePositionParams memory unuseParams = V3BaseHandlerKodiak.UnusePositionParams({
             pool: IV3Pool(address(pool)),
             hook: address(0),
             tickLower: vars.tickLower,
@@ -1561,7 +1560,7 @@ contract UniswapV3HandlerTest is Test, UniswapV3FactoryDeployer {
         // Wait for cooldown period to pass
         vm.warp(block.timestamp + handler.reserveCooldownHook(address(0)));
 
-        reserveParams = V3BaseHandler.ReserveOperation({
+        reserveParams = V3BaseHandlerKodiak.ReserveOperation({
             pool: IV3Pool(address(pool)),
             hook: address(0),
             tickLower: vars.tickLower,
@@ -1569,7 +1568,7 @@ contract UniswapV3HandlerTest is Test, UniswapV3FactoryDeployer {
             liquidity: uint128(liquidityUsedBefore - liquidityUsedAfter),
             isReserve: false
         });
-        withdrawData = abi.encode(V3BaseHandler.WildcardActions.RESERVE_LIQUIDITY, abi.encode(reserveParams));
+        withdrawData = abi.encode(V3BaseHandlerKodiak.WildcardActions.RESERVE_LIQUIDITY, abi.encode(reserveParams));
 
         vm.prank(owner);
         positionManager.wildcard(IHandler(address(handler)), withdrawData);
@@ -1605,7 +1604,7 @@ contract UniswapV3HandlerTest is Test, UniswapV3FactoryDeployer {
         uint256 initialFeeReceiver1 = ETH.balanceOf(feeReceiver);
 
         // Prepare donation parameters
-        V3BaseHandler.DonateParams memory donateParams = V3BaseHandler.DonateParams({
+        V3BaseHandlerKodiak.DonateParams memory donateParams = V3BaseHandlerKodiak.DonateParams({
             pool: IV3Pool(address(pool)),
             hook: address(0),
             tickLower: vars.tickLower,
@@ -1688,7 +1687,7 @@ contract UniswapV3HandlerTest is Test, UniswapV3FactoryDeployer {
 
         // Step 3: Call the wildcard function to collect fees
         bytes memory collectData = abi.encode(
-            V3BaseHandler.WildcardActions.COLLECT_FEES,
+            V3BaseHandlerKodiak.WildcardActions.COLLECT_FEES,
             abi.encode(
                 IV3Pool(address(pool)),
                 address(0), // hook
@@ -1727,7 +1726,7 @@ contract UniswapV3HandlerTest is Test, UniswapV3FactoryDeployer {
     }
 
     // Add this function to handle the swap callback
-    function uniswapV3SwapCallback(int256 amount0Delta, int256 amount1Delta, bytes calldata) external {
+    function BubblySwapSwapCallback(int256 amount0Delta, int256 amount1Delta, bytes calldata) external {
         if (amount0Delta > 0) {
             USDC.transfer(msg.sender, uint256(amount0Delta));
         } else if (amount1Delta > 0) {

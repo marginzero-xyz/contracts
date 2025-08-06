@@ -10,6 +10,9 @@ import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
 /// @notice A hook contract that enforces a maximum TTL (Time To Live) of 24 hours for whitelisted applications
 /// @dev Implements IHook interface and inherits from Ownable
 contract BoundedTTLHook_1Week is IHook, Ownable {
+    error ExpiryTooLong();
+    error AppNotWhitelisted();
+
     /// @notice Mapping to store whitelisted applications
     mapping(address => bool) whitelistedApps;
 
@@ -42,15 +45,15 @@ contract BoundedTTLHook_1Week is IHook, Ownable {
 
     /// @notice Constructor to set up the contract
     /// @dev Initializes the Ownable contract with the deployer as the owner
-    constructor() Ownable(msg.sender) {}
+    constructor(address _owner) Ownable(_owner) {}
 
     /// @notice Checks if a position use is allowed based on expiry time
-    /// @dev Reverts if the app is not whitelisted or if the expiry is more than 1 weeks in the future
+    /// @dev Reverts if the app is not whitelisted or if the expiry is more than 24 hours in the future
     /// @param _data Encoded data containing the app address and expiry timestamp
     function onPositionUseBefore(bytes calldata _data) external {
         (address app, uint256 expiry) = abi.decode(_data, (address, uint256));
-        if (!whitelistedApps[app]) revert();
-        if (expiry - block.timestamp > 1 weeks) revert();
+        if (!whitelistedApps[app]) revert AppNotWhitelisted();
+        if (expiry - block.timestamp > 1 weeks) revert ExpiryTooLong();
     }
 
     /// @notice Registers the hook with a handler contract

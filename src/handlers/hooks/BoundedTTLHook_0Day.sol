@@ -45,7 +45,7 @@ contract BoundedTTLHook_0Day is IHook, Ownable {
 
     /// @notice Constructor to set up the contract
     /// @dev Initializes the Ownable contract with the deployer as the owner
-    constructor() Ownable(msg.sender) {}
+    constructor(address _owner) Ownable(_owner) {}
 
     /// @notice Checks if a position use is allowed based on expiry time
     /// @dev Reverts if the app is not whitelisted or if the expiry is more than 24 hours in the future

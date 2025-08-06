@@ -12,11 +12,12 @@ import {IV3Pool} from "../../interfaces/handlers/V3/IV3Pool.sol";
 /// @dev Inherits from V3BaseHandler and LiquidityManager
 contract WagmiV3Handler is V3BaseHandler, LiquidityManager {
     /// @notice Constructs the WagmiV3Handler contract
+    /// @param _owner Address of the contract owner
     /// @param _feeReceiver Address to receive fees
     /// @param _factory Address of the Wagmi V3 factory
     /// @param _pool_init_code_hash Initialization code hash for Wagmi V3 pools
-    constructor(address _feeReceiver, address _factory, bytes32 _pool_init_code_hash)
-        V3BaseHandler(_feeReceiver)
+    constructor(address _owner, address _feeReceiver, address _factory, bytes32 _pool_init_code_hash)
+        V3BaseHandler(_owner, _feeReceiver)
         LiquidityManager(_factory, _pool_init_code_hash)
     {}
 
