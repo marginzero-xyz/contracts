@@ -149,8 +149,11 @@ contract BorderlessHandlerOptionMarketOTMFE is Test {
 
         poolSpotPrice = new PoolSpotPrice();
 
-        mintOptionFirewall = new MintOptionFirewall(verifiedSigner);
-        exerciseOptionFirewall = new ExerciseOptionFirewall(verifiedSigner);
+        mintOptionFirewall = new MintOptionFirewall(owner);
+        exerciseOptionFirewall = new ExerciseOptionFirewall(owner);
+
+        mintOptionFirewall.updateWhitelistedSigner(verifiedSigner, true);
+        exerciseOptionFirewall.updateWhitelistedExecutor(verifiedSigner, true);
 
         optionMarketOTMFE = new OptionMarketOTMFE(
             owner,

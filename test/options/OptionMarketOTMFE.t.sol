@@ -37,6 +37,8 @@ import {AddLiquidityRouter} from "../../src/periphery/routers/AddLiquidityRouter
 import {MintOptionFirewall} from "../../src/periphery/firewalls/MintOptionFirewall.sol";
 import {ExerciseOptionFirewall} from "../../src/periphery/firewalls/ExerciseOptionFirewall.sol";
 
+import {BoundedTTLHook_0Day} from "../../src/handlers/hooks/BoundedTTLHook_0Day.sol";
+
 contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
     using TickMath for int24;
 
@@ -83,17 +85,20 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
 
     IUniswapV3Pool public pool;
 
-    MockHook public mockHook;
-
     PoolSpotPrice public poolSpotPrice;
+
+    BoundedTTLHook_0Day public zeroDayHook;
 
     function setUp() public {
         // Deploy the Uniswap V3 Factory
-        factory = IUniswapV3Factory(deployUniswapV3Factory());
+
+        zeroDayHook = new BoundedTTLHook_0Day(owner);
 
         // Deploy mock tokens for testing
         USDC = new MockERC20("USD Coin", "USDC", 6);
         ETH = new MockERC20("Ethereum", "ETH", 18);
+
+        factory = IUniswapV3Factory(deployUniswapV3Factory());
 
         uniswapV3PoolUtils = new UniswapV3PoolUtils();
 
@@ -131,17 +136,15 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
 
         handler.updateHandlerSettings(address(positionManager), true, address(0), 6 hours, address(feeReceiver));
 
-        mockHook = new MockHook();
-
         handler.registerHook(
-            address(mockHook),
+            address(zeroDayHook),
             IHandler.HookPermInfo({
-                onMint: false,
-                onBurn: false,
-                onUse: false,
-                onUnuse: false,
-                onDonate: false,
-                allowSplit: false
+                onMint: true,
+                onBurn: true,
+                onUse: true,
+                onUnuse: true,
+                onDonate: true,
+                allowSplit: true
             })
         );
 
@@ -151,8 +154,11 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
 
         poolSpotPrice = new PoolSpotPrice();
 
-        mintOptionFirewall = new MintOptionFirewall(verifiedSigner);
-        exerciseOptionFirewall = new ExerciseOptionFirewall(verifiedSigner);
+        mintOptionFirewall = new MintOptionFirewall(owner);
+        exerciseOptionFirewall = new ExerciseOptionFirewall(owner);
+
+        mintOptionFirewall.updateWhitelistedSigner(verifiedSigner, true);
+        exerciseOptionFirewall.updateWhitelistedExecutor(verifiedSigner, true);
 
         optionMarketOTMFE = new OptionMarketOTMFE(
             owner,
@@ -164,6 +170,8 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
             address(pool),
             address(poolSpotPrice)
         );
+
+        zeroDayHook.updateWhitelistedAppsStatus(address(optionMarketOTMFE), true);
 
         exerciseOptionFirewall.updateWhitelistedMarket(address(optionMarketOTMFE), true);
 
@@ -204,7 +212,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
             0
         );
 
-        optionMarketOTMFE.setApprovedSwapperAndHook(address(this), true, address(mockHook), true);
+        optionMarketOTMFE.setApprovedSwapperAndHook(address(this), true, address(zeroDayHook), true);
 
         optionMarketOTMFE.setApprovedMinter(address(mintOptionFirewall), true);
 
@@ -301,7 +309,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
 
         V3BaseHandler.MintPositionParams memory params = V3BaseHandler.MintPositionParams({
             pool: IV3Pool(address(pool)),
-            hook: address(mockHook),
+            hook: address(zeroDayHook),
             tickLower: vars.tickLower,
             tickUpper: vars.tickUpper,
             liquidity: vars.liquidity
@@ -321,8 +329,9 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
 
         assertTrue(vars.sharesMinted > 0, "Shares minted should be greater than 0");
 
-        vars.tokenId =
-            handler.getHandlerIdentifier(abi.encode(address(pool), address(mockHook), vars.tickLower, vars.tickUpper));
+        vars.tokenId = handler.getHandlerIdentifier(
+            abi.encode(address(pool), address(zeroDayHook), vars.tickLower, vars.tickUpper)
+        );
 
         TokenIdInfo memory info;
         (
@@ -394,7 +403,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
 
         V3BaseHandler.MintPositionParams memory params = V3BaseHandler.MintPositionParams({
             pool: IV3Pool(address(pool)),
-            hook: address(mockHook),
+            hook: address(zeroDayHook),
             tickLower: vars.tickLower,
             tickUpper: vars.tickUpper,
             liquidity: vars.liquidity
@@ -413,8 +422,9 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         );
         assertTrue(vars.sharesMinted > 0, "Shares minted should be greater than 0");
 
-        vars.tokenId =
-            handler.getHandlerIdentifier(abi.encode(address(pool), address(mockHook), vars.tickLower, vars.tickUpper));
+        vars.tokenId = handler.getHandlerIdentifier(
+            abi.encode(address(pool), address(zeroDayHook), vars.tickLower, vars.tickUpper)
+        );
 
         TokenIdInfo memory info;
         (
@@ -473,7 +483,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         optionTicks[0] = OptionMarketOTMFE.OptionTicks({
             _handler: IHandler(address(handler)),
             pool: pool,
-            hook: address(mockHook),
+            hook: address(zeroDayHook),
             tickLower: vars.tickLower,
             tickUpper: vars.tickUpper,
             liquidityToUse: uint128(vars.sharesMinted)
@@ -492,7 +502,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         uint256 currentPrice = poolSpotPrice.getSpotPrice(pool, address(ETH), ETH.decimals());
         uint256 strike = optionMarketOTMFE.getPricePerCallAssetViaTick(pool, params.tickUpper);
         uint256 expectedPremium = optionMarketOTMFE.getPremiumAmount(
-            address(mockHook),
+            address(zeroDayHook),
             false, // isCall
             block.timestamp + params.ttl,
             params.ttl,
@@ -536,7 +546,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         optionTicks[0] = IOptionMarketOTMFE.OptionTicks({
             _handler: IHandler(address(handler)),
             pool: pool,
-            hook: address(mockHook),
+            hook: address(zeroDayHook),
             tickLower: vars.tickLower,
             tickUpper: vars.tickUpper,
             liquidityToUse: uint128(vars.sharesMinted)
@@ -561,7 +571,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         );
 
         uint256 expectedPremium = optionMarketOTMFE.getPremiumAmount(
-            address(mockHook),
+            address(zeroDayHook),
             false, // isCall
             block.timestamp + params.ttl - 10 minutes,
             params.ttl,
@@ -583,7 +593,9 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
 
         (signature[0].v, signature[0].r, signature[0].s) = _createSignature(
             trader,
-            handler.getHandlerIdentifier(abi.encode(address(pool), address(mockHook), vars.tickLower, vars.tickUpper)),
+            handler.getHandlerIdentifier(
+                abi.encode(address(pool), address(zeroDayHook), vars.tickLower, vars.tickUpper)
+            ),
             MintOptionFirewall.RangeCheckData({
                 user: trader,
                 pool: address(pool),
@@ -667,7 +679,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         optionTicks[0] = IOptionMarketOTMFE.OptionTicks({
             _handler: IHandler(address(handler)),
             pool: pool,
-            hook: address(mockHook),
+            hook: address(zeroDayHook),
             tickLower: vars.tickLower,
             tickUpper: vars.tickUpper,
             liquidityToUse: uint128(vars.sharesMinted)
@@ -692,7 +704,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         );
 
         uint256 expectedPremium = optionMarketOTMFE.getPremiumAmount(
-            address(mockHook),
+            address(zeroDayHook),
             true, // isPut
             block.timestamp + params.ttl - 10 minutes,
             params.ttl,
@@ -714,7 +726,9 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
 
         (signature[0].v, signature[0].r, signature[0].s) = _createSignature(
             trader,
-            handler.getHandlerIdentifier(abi.encode(address(pool), address(mockHook), vars.tickLower, vars.tickUpper)),
+            handler.getHandlerIdentifier(
+                abi.encode(address(pool), address(zeroDayHook), vars.tickLower, vars.tickUpper)
+            ),
             MintOptionFirewall.RangeCheckData({
                 user: trader,
                 pool: address(pool),
@@ -840,7 +854,9 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         ExerciseOptionFirewall.Signature[] memory signature = new ExerciseOptionFirewall.Signature[](1);
         (signature[0].v, signature[0].r, signature[0].s) = _createSignatureExercise(
             trader,
-            handler.getHandlerIdentifier(abi.encode(address(pool), address(mockHook), vars.tickLower, vars.tickUpper)),
+            handler.getHandlerIdentifier(
+                abi.encode(address(pool), address(zeroDayHook), vars.tickLower, vars.tickUpper)
+            ),
             ExerciseOptionFirewall.RangeCheckData({
                 user: trader,
                 pool: address(pool),
@@ -949,7 +965,9 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         ExerciseOptionFirewall.Signature[] memory signature = new ExerciseOptionFirewall.Signature[](1);
         (signature[0].v, signature[0].r, signature[0].s) = _createSignatureExercise(
             trader,
-            handler.getHandlerIdentifier(abi.encode(address(pool), address(mockHook), vars.tickLower, vars.tickUpper)),
+            handler.getHandlerIdentifier(
+                abi.encode(address(pool), address(zeroDayHook), vars.tickLower, vars.tickUpper)
+            ),
             ExerciseOptionFirewall.RangeCheckData({
                 user: trader,
                 pool: address(pool),
