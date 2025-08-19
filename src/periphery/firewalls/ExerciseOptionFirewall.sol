@@ -53,7 +53,7 @@ contract ExerciseOptionFirewall is Multicall, Ownable, EIP712 {
     }
 
     bytes32 private constant RANGE_CHECK_TYPEHASH = keccak256(
-        "RangeCheck(address user,address pool,int24 minTickLower,int24 maxTickUpper,uint160 minSqrtPriceX96,uint160 maxSprtPriceX96,uint256 deadline)"
+        "RangeCheck(address user,address pool,address market,int24 minTickLower,int24 maxTickUpper,uint160 minSqrtPriceX96,uint160 maxSqrtPriceX96,uint256 deadline)"
     );
 
     constructor(address _signer) EIP712("ExerciseOptionFirewall", "1") Ownable(msg.sender) {
