@@ -17,7 +17,7 @@ contract OptionPricingLinearV2 is Ownable {
     // The multiplier for volatility calculation in 1e4 precision
     mapping(address => uint256) public volatilityMultiplier;
 
-    // The % of the price of asset which is the minimum option price possible in 1e8 precision
+    // The % of the price of asset which is the minimum option price possible in 1e10 precision
     mapping(address => uint256) public minOptionPricePercentage;
 
     // The decimal precision for volatility calculation
@@ -260,7 +260,7 @@ contract OptionPricingLinearV2 is Ownable {
 
         uint256 optionPrice = BlackScholes.calculate(
             _params.isPut ? 1 : 0, _params.lastPrice, _params.strike, timeToExpiry, 0, volatility
-        ) // 0 - Put, 1 - Call
+        ) // optionType: 0 = Call, 1 = Put
                 // Number of days to expiry mul by 100
             .div(BlackScholes.DIVISOR);
 
