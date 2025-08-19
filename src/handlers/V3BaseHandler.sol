@@ -530,7 +530,7 @@ abstract contract V3BaseHandler is IHandler, ERC6909, Ownable {
             tki.reservedLiquidity -= _params.liquidity;
             rld.liquidity -= _params.liquidity;
 
-            emit LogWithdrawReserveLiquidity(_params, context, amount1, amount1);
+            emit LogWithdrawReserveLiquidity(_params, context, amount0, amount1);
         }
     }
 
