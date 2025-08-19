@@ -80,7 +80,6 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
     );
     event LogSettleOption(AssetsCache assetsCache, uint256[] liquiditySettled, address owner, uint256 optionId);
     event LogSplitOption(PositionSplitterParams params, uint256 newOptionId, address oldOwner);
-    event LogUpdateExerciseDelegate(address owner, address delegate, bool status);
     event LogOptionsMarketInitialized(
         address primePool, address optionPricing, address dpFee, address callAsset, address putAsset
     );
@@ -225,13 +224,13 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
 
     /// @notice Returns the name of the contract
     /// @return string The name of the contract
-    function name() public view override returns (string memory) {
+    function name() public pure override returns (string memory) {
         return "MarginZero Option Market OTM FE";
     }
 
     /// @notice Returns the symbol of the contract
     /// @return string The symbol of the contract
-    function symbol() public view override returns (string memory) {
+    function symbol() public pure override returns (string memory) {
         return "MZ-OM-OTM-FE";
     }
 
