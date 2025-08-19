@@ -83,6 +83,8 @@ contract ExerciseOptionFirewall is Multicall, Ownable, EIP712 {
             revert NotOwner();
         }
 
+        if (optionId != settleParams.optionId) revert NotOwner();
+
         IOptionMarketOTMFE.OptionData memory oData = market.opData(optionId);
 
         if (oData.opTickArrayLen != rangeCheckData.length) {
