@@ -90,7 +90,7 @@ contract OnSwapReceiver is ISwapper, Ownable {
             revert OnSwapReceiver__InsufficientAmountOut();
         }
 
-        tokenOut.transfer(msg.sender, amountOut);
+        tokenOut.safeTransfer(msg.sender, amountOut);
 
         emit OnSwapReceived(_amountIn, amountOut, _tokenIn, _tokenOut, to);
     }

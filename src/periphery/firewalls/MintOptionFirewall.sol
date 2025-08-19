@@ -125,10 +125,14 @@ contract MintOptionFirewall is Multicall, EIP712, Ownable, IERC721Receiver {
         if (!optionData.self) {
             if (optionData.optionParams.isCall) {
                 IERC20(callAsset).safeTransferFrom(msg.sender, address(this), optionData.optionParams.maxCostAllowance);
-                IERC20(callAsset).approve(address(optionData.market), optionData.optionParams.maxCostAllowance);
+                IERC20(callAsset).safeIncreaseAllowance(
+                    address(optionData.market), optionData.optionParams.maxCostAllowance
+                );
             } else {
                 IERC20(putAsset).safeTransferFrom(msg.sender, address(this), optionData.optionParams.maxCostAllowance);
-                IERC20(putAsset).approve(address(optionData.market), optionData.optionParams.maxCostAllowance);
+                IERC20(putAsset).safeIncreaseAllowance(
+                    address(optionData.market), optionData.optionParams.maxCostAllowance
+                );
             }
         } else {
             if (optionData.optionParams.isCall) {

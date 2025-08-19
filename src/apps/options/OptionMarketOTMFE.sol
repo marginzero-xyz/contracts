@@ -506,7 +506,7 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
                         revert NotApprovedSwapper();
                     }
 
-                    ac.assetToUse.transfer(address(_params.swapper[i]), amountToSwap);
+                    ac.assetToUse.safeTransfer(address(_params.swapper[i]), amountToSwap);
 
                     _params.swapper[i].onSwapReceived(
                         address(ac.assetToUse), address(ac.assetToGet), amountToSwap, _params.swapData[i]
@@ -574,7 +574,7 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
         }
 
         if (ac.totalProfit > 0) {
-            ac.assetToGet.transfer(msg.sender, ac.totalProfit);
+            ac.assetToGet.safeTransfer(msg.sender, ac.totalProfit);
         }
 
         emit LogSettleOption(ac, _params.liquidityToSettle, ownerOf(_params.optionId), _params.optionId);
