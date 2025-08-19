@@ -364,7 +364,7 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
             }
         }
 
-        uint256 strike = getPricePerCallAssetViaTick(primePool, _params.isCall ? _params.tickUpper : _params.tickLower);
+        uint256 strike = getPricePerCallAssetViaTick(primePool, _params.isCall ? _params.tickLower : _params.tickUpper);
 
         uint256 premiumAmount = _getPremiumAmount(
             opTick.hook,
