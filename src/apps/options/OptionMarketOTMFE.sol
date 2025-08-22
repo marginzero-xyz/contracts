@@ -284,14 +284,8 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
                 revert NotValidStrikeTick();
             }
 
-            if (opTick.tickUpper > 0 && opTick.tickLower > 0 || opTick.tickUpper < 0 && opTick.tickLower < 0) {
-                if (uint24(opTick.tickUpper - opTick.tickLower) > maxTickDiff) {
-                    revert NotValidStrikeTick();
-                }
-            } else {
-                if (uint24(opTick.tickUpper - opTick.tickLower) > maxTickDiff) {
-                    revert NotValidStrikeTick();
-                }
+            if (uint24(uint256(int256(opTick.tickUpper) - int256(opTick.tickLower))) > maxTickDiff) {
+                revert NotValidStrikeTick();
             }
 
             if (
