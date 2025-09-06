@@ -35,11 +35,6 @@ contract OnSwapReceiver is ISwapper, Ownable {
     /// @param _swapper The address of the swapper contract used
     event OnSwapReceived(uint256 _amountIn, uint256 _amountOut, address _tokenIn, address _tokenOut, address _swapper);
 
-    /// @notice Emitted when a swapper is whitelisted or de-whitelisted
-    /// @param _address The address of the swapper
-    /// @param _isWhitelisted The new whitelist status
-    event SwapperWhitelisted(address _address, bool _isWhitelisted);
-
     /// @notice Constructs the OnSwapReceiver contract
     constructor() Ownable(msg.sender) {}
 
@@ -90,7 +85,7 @@ contract OnSwapReceiver is ISwapper, Ownable {
             revert OnSwapReceiver__InsufficientAmountOut();
         }
 
-        tokenOut.transfer(msg.sender, amountOut);
+        tokenOut.safeTransfer(msg.sender, amountOut);
 
         emit OnSwapReceived(_amountIn, amountOut, _tokenIn, _tokenOut, to);
     }
