@@ -719,7 +719,7 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
     /// @param _ttlStartTime The start time for the TTL
     /// @param ttlStatus The TTL status
     /// @param _BUFFER_TIME The buffer time
-    function updatePoolApporvals(
+    function updatePoolApprovals(
         address _settler,
         bool _statusSettler,
         address _pool,

@@ -183,10 +183,10 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
 
         openSettlement = new OpenSettlement(settler, publicFeeRecipient, 1000, 500);
 
-        optionMarketOTMFE.updatePoolApporvals(
+        optionMarketOTMFE.updatePoolApprovals(
             address(exerciseOptionFirewall), true, address(pool), true, 86400, 1729065600, true, 10 minutes
         );
-        optionMarketOTMFE.updatePoolApporvals(
+        optionMarketOTMFE.updatePoolApprovals(
             address(openSettlement), true, address(pool), true, 86400, 1729065600, true, 10 minutes
         );
 
