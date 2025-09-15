@@ -3,22 +3,22 @@ pragma solidity ^0.8.0;
 
 import "forge-std/Test.sol";
 
-import {UniswapV3Handler} from "../../src/handlers/uniswap-v3/UniswapV3Handler.sol";
+import {KodiakV3Handler} from "../../src/handlers/kodiak-v3/KodiakV3Handler.sol";
 import {PositionManager} from "../../src/PositionManager.sol";
 import {OptionMarketOTMFE} from "../../src/apps/options/OptionMarketOTMFE.sol";
 import {OptionPricingLinearV2} from "../../src/apps/options/pricing/OptionPricingLinearV2.sol";
 import {ClammFeeStrategyV2} from "../../src/apps/options/pricing/fees/ClammFeeStrategyV2.sol";
-import {UniswapV3FactoryDeployer} from "../../test/handlers/uniswap-v3/uniswap-v3-utils/UniswapV3FactoryDeployer.sol";
 
-import {UniswapV3PoolUtils} from "../../test/handlers/uniswap-v3/uniswap-v3-utils/UniswapV3PoolUtils.sol";
-import {UniswapV3LiquidityManagement} from
-    "../../test/handlers/uniswap-v3/uniswap-v3-utils/UniswapV3LiquidityManagement.sol";
+import {UniswapV3PoolUtils} from "../../test/handlers/kodiak-v3/kodiak-v3-utils/UniswapV3PoolUtils.sol";
+import {KodiakV3LiquidityManagement} from
+    "../../test/handlers/kodiak-v3/kodiak-v3-utils/KodiakV3LiquidityManagement.sol";
+import {IUniswapV3Factory} from "../../test/handlers/kodiak-v3/kodiak-v3-utils/IUniswapV3Factory.sol";
 
-import {IUniswapV3Factory} from "@uniswap/v3-core/contracts/interfaces/IUniswapV3Factory.sol";
-import {IUniswapV3Pool} from "@uniswap/v3-core/contracts/interfaces/IUniswapV3Pool.sol";
+import {IUniswapV3Pool as KodiakV3Pool} from "../../test/handlers/kodiak-v3/kodiak-v3-utils/IUniswapV3Pool.sol";
 import {IVerifiedSpotPrice} from "../../src/interfaces/IVerifiedSpotPrice.sol";
 import {IOptionMarketOTMFE} from "../../src/interfaces/apps/options/IOptionMarketOTMFE.sol";
 import {PoolSpotPrice} from "../../src/apps/options/pricing/PoolSpotPrice.sol";
+import {IUniswapV3Pool} from "@uniswap/v3-core/contracts/interfaces/IUniswapV3Pool.sol";
 
 import {ISwapper} from "../../src/interfaces/ISwapper.sol";
 
@@ -37,23 +37,21 @@ import {AddLiquidityRouter} from "../../src/periphery/routers/AddLiquidityRouter
 import {MintOptionFirewall} from "../../src/periphery/firewalls/MintOptionFirewall.sol";
 import {ExerciseOptionFirewall} from "../../src/periphery/firewalls/ExerciseOptionFirewall.sol";
 
-import {BoundedTTLHook_0Day} from "../../src/handlers/hooks/BoundedTTLHook_0Day.sol";
-
-contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
+contract KodiakHandlerOptionMarketOTMFE is Test {
     using TickMath for int24;
 
     PositionManager public positionManager;
-    UniswapV3Handler public handler;
+    KodiakV3Handler public handler;
 
     OptionMarketOTMFE public optionMarketOTMFE;
     OptionPricingLinearV2 public optionPricingLinearV2;
     ClammFeeStrategyV2 public clammFeeStrategyV2;
 
-    UniswapV3FactoryDeployer public factoryDeployer;
-    IUniswapV3Factory public factory;
+    address factory = 0xD84CBf0B02636E7f53dB9E5e45A616E05d710990;
+    bytes32 PAIR_INIT_CODE_HASH = 0xd8e2091bc519b509176fc39aeb148cc8444418d3ce260820edc44e806c2c2339;
 
     UniswapV3PoolUtils public uniswapV3PoolUtils;
-    UniswapV3LiquidityManagement public uniswapV3LiquidityManagement;
+    KodiakV3LiquidityManagement public kodiakV3LiquidityManagement;
 
     OpenSettlement public openSettlement;
     AddLiquidityRouter public addLiquidityRouter;
@@ -85,32 +83,30 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
 
     IUniswapV3Pool public pool;
 
+    MockHook public mockHook;
+
     PoolSpotPrice public poolSpotPrice;
 
-    BoundedTTLHook_0Day public zeroDayHook;
-
     function setUp() public {
-        // Deploy the Uniswap V3 Factory
-
-        zeroDayHook = new BoundedTTLHook_0Day(owner);
+        vm.createSelectFork(vm.envString("BERACHAIN_RPC_URL"), 850217);
 
         // Deploy mock tokens for testing
-        USDC = new MockERC20("USD Coin", "USDC", 6);
         ETH = new MockERC20("Ethereum", "ETH", 18);
-
-        factory = IUniswapV3Factory(deployUniswapV3Factory());
+        USDC = new MockERC20("USD Coin", "USDC", 6);
 
         uniswapV3PoolUtils = new UniswapV3PoolUtils();
 
-        uniswapV3LiquidityManagement = new UniswapV3LiquidityManagement(address(factory));
+        kodiakV3LiquidityManagement = new KodiakV3LiquidityManagement((factory));
 
         uint160 sqrtPriceX96 = 1771595571142957166518320255467520;
-        pool = IUniswapV3Pool(uniswapV3PoolUtils.deployAndInitializePool(factory, ETH, USDC, 500, sqrtPriceX96));
+        pool = IUniswapV3Pool(
+            uniswapV3PoolUtils.deployAndInitializePool(IUniswapV3Factory(factory), ETH, USDC, 500, sqrtPriceX96)
+        );
 
         uniswapV3PoolUtils.addLiquidity(
             UniswapV3PoolUtils.AddLiquidityStruct({
-                liquidityManager: address(uniswapV3LiquidityManagement),
-                pool: pool,
+                liquidityManager: address(kodiakV3LiquidityManagement),
+                pool: address(pool),
                 user: owner,
                 desiredAmount0: 10_000_000e6,
                 desiredAmount1: 10 ether,
@@ -125,26 +121,28 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         positionManager = new PositionManager(owner);
 
         // Deploy the Uniswap V3 handler with additional arguments
-        handler = new UniswapV3Handler(
+        handler = new KodiakV3Handler(
             owner,
             feeReceiver, // _feeReceiver
             address(factory), // _factory
-            0xa598dd2fba360510c5a8f02f44423a4468e902df5857dbce3ca162a43a3a31ff
+            0xd8e2091bc519b509176fc39aeb148cc8444418d3ce260820edc44e806c2c2339
         );
         // Whitelist the handler
         positionManager.updateWhitelistHandler(address(handler), true);
 
         handler.updateHandlerSettings(address(positionManager), true, address(0), 6 hours, address(feeReceiver));
 
+        mockHook = new MockHook();
+
         handler.registerHook(
-            address(zeroDayHook),
+            address(mockHook),
             IHandler.HookPermInfo({
-                onMint: true,
-                onBurn: true,
-                onUse: true,
-                onUnuse: true,
-                onDonate: true,
-                allowSplit: true
+                onMint: false,
+                onBurn: false,
+                onUse: false,
+                onUnuse: false,
+                onDonate: false,
+                allowSplit: false
             })
         );
 
@@ -171,8 +169,6 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
             address(poolSpotPrice)
         );
 
-        zeroDayHook.updateWhitelistedAppsStatus(address(optionMarketOTMFE), true);
-
         exerciseOptionFirewall.updateWhitelistedMarket(address(optionMarketOTMFE), true);
 
         optionPricingLinearV2.updateVolatilityOffset(address(optionMarketOTMFE), 10_000);
@@ -193,10 +189,10 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
 
         openSettlement = new OpenSettlement(owner, settler, publicFeeRecipient, 1000, 500);
 
-        optionMarketOTMFE.updatePoolApprovals(
+        optionMarketOTMFE.updatePoolApporvals(
             address(exerciseOptionFirewall), true, address(pool), true, 86400, 1729065600, true, 10 minutes
         );
-        optionMarketOTMFE.updatePoolApprovals(
+        optionMarketOTMFE.updatePoolApporvals(
             address(openSettlement), true, address(pool), true, 86400, 1729065600, true, 10 minutes
         );
 
@@ -212,7 +208,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
             0
         );
 
-        optionMarketOTMFE.setApprovedSwapperAndHook(address(this), true, address(zeroDayHook), true);
+        optionMarketOTMFE.setApprovedSwapperAndHook(address(this), true, address(mockHook), true);
 
         optionMarketOTMFE.setApprovedMinter(address(mintOptionFirewall), true);
 
@@ -285,7 +281,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         uint256 amount0Desired = 0; // No USDC
 
         // Get current price and tick
-        (vars.sqrtPriceX96, vars.currentTick,,,,,) = pool.slot0();
+        (vars.sqrtPriceX96, vars.currentTick,,,,,) = KodiakV3Pool(address(pool)).slot0();
 
         console.log("currentTick", vars.currentTick);
 
@@ -309,7 +305,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
 
         V3BaseHandler.MintPositionParams memory params = V3BaseHandler.MintPositionParams({
             pool: IV3Pool(address(pool)),
-            hook: address(zeroDayHook),
+            hook: address(mockHook),
             tickLower: vars.tickLower,
             tickUpper: vars.tickUpper,
             liquidity: vars.liquidity
@@ -329,9 +325,8 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
 
         assertTrue(vars.sharesMinted > 0, "Shares minted should be greater than 0");
 
-        vars.tokenId = handler.getHandlerIdentifier(
-            abi.encode(address(pool), address(zeroDayHook), vars.tickLower, vars.tickUpper)
-        );
+        vars.tokenId =
+            handler.getHandlerIdentifier(abi.encode(address(pool), address(mockHook), vars.tickLower, vars.tickUpper));
 
         TokenIdInfo memory info;
         (
@@ -381,7 +376,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         uint256 amount1Desired = 0; // No ETH
 
         // Get current price and tick
-        (vars.sqrtPriceX96, vars.currentTick,,,,,) = pool.slot0();
+        (vars.sqrtPriceX96, vars.currentTick,,,,,) = KodiakV3Pool(address(pool)).slot0();
 
         // Calculate tick range
         int24 tickSpacing = pool.tickSpacing();
@@ -403,7 +398,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
 
         V3BaseHandler.MintPositionParams memory params = V3BaseHandler.MintPositionParams({
             pool: IV3Pool(address(pool)),
-            hook: address(zeroDayHook),
+            hook: address(mockHook),
             tickLower: vars.tickLower,
             tickUpper: vars.tickUpper,
             liquidity: vars.liquidity
@@ -422,9 +417,8 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         );
         assertTrue(vars.sharesMinted > 0, "Shares minted should be greater than 0");
 
-        vars.tokenId = handler.getHandlerIdentifier(
-            abi.encode(address(pool), address(zeroDayHook), vars.tickLower, vars.tickUpper)
-        );
+        vars.tokenId =
+            handler.getHandlerIdentifier(abi.encode(address(pool), address(mockHook), vars.tickLower, vars.tickUpper));
 
         TokenIdInfo memory info;
         (
@@ -471,7 +465,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         vars.sharesMinted = addLiquidityForCALL();
 
         // Get current price and tick
-        (vars.sqrtPriceX96, vars.currentTick,,,,,) = pool.slot0();
+        (vars.sqrtPriceX96, vars.currentTick,,,,,) = KodiakV3Pool(address(pool)).slot0();
 
         // Calculate tick range for the long position
         int24 tickSpacing = pool.tickSpacing();
@@ -483,7 +477,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         optionTicks[0] = OptionMarketOTMFE.OptionTicks({
             _handler: IHandler(address(handler)),
             pool: pool,
-            hook: address(zeroDayHook),
+            hook: address(mockHook),
             tickLower: vars.tickLower,
             tickUpper: vars.tickUpper,
             liquidityToUse: uint128(vars.sharesMinted)
@@ -502,7 +496,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         uint256 currentPrice = poolSpotPrice.getSpotPrice(pool, address(ETH), ETH.decimals());
         uint256 strike = optionMarketOTMFE.getPricePerCallAssetViaTick(pool, params.tickUpper);
         uint256 expectedPremium = optionMarketOTMFE.getPremiumAmount(
-            address(zeroDayHook),
+            address(mockHook),
             false, // isCall
             block.timestamp + params.ttl,
             params.ttl,
@@ -534,7 +528,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         vars.sharesMinted = addLiquidityForCALL();
 
         // Get current price and tick
-        (vars.sqrtPriceX96, vars.currentTick,,,,,) = pool.slot0();
+        (vars.sqrtPriceX96, vars.currentTick,,,,,) = KodiakV3Pool(address(pool)).slot0();
 
         // Calculate tick range for the long position
         int24 tickSpacing = pool.tickSpacing();
@@ -546,7 +540,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         optionTicks[0] = IOptionMarketOTMFE.OptionTicks({
             _handler: IHandler(address(handler)),
             pool: pool,
-            hook: address(zeroDayHook),
+            hook: address(mockHook),
             tickLower: vars.tickLower,
             tickUpper: vars.tickUpper,
             liquidityToUse: uint128(vars.sharesMinted)
@@ -571,7 +565,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         );
 
         uint256 expectedPremium = optionMarketOTMFE.getPremiumAmount(
-            address(zeroDayHook),
+            address(mockHook),
             false, // isCall
             block.timestamp + params.ttl - 10 minutes,
             params.ttl,
@@ -593,9 +587,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
 
         (signature[0].v, signature[0].r, signature[0].s) = _createSignature(
             trader,
-            handler.getHandlerIdentifier(
-                abi.encode(address(pool), address(zeroDayHook), vars.tickLower, vars.tickUpper)
-            ),
+            handler.getHandlerIdentifier(abi.encode(address(pool), address(mockHook), vars.tickLower, vars.tickUpper)),
             MintOptionFirewall.RangeCheckData({
                 user: trader,
                 pool: address(pool),
@@ -667,7 +659,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         vars.sharesMinted = addLiquidityForPUT();
 
         // Get current price and tick
-        (vars.sqrtPriceX96, vars.currentTick,,,,,) = pool.slot0();
+        (vars.sqrtPriceX96, vars.currentTick,,,,,) = KodiakV3Pool(address(pool)).slot0();
 
         // Calculate tick range for the long position
         int24 tickSpacing = pool.tickSpacing();
@@ -679,7 +671,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         optionTicks[0] = IOptionMarketOTMFE.OptionTicks({
             _handler: IHandler(address(handler)),
             pool: pool,
-            hook: address(zeroDayHook),
+            hook: address(mockHook),
             tickLower: vars.tickLower,
             tickUpper: vars.tickUpper,
             liquidityToUse: uint128(vars.sharesMinted)
@@ -704,7 +696,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         );
 
         uint256 expectedPremium = optionMarketOTMFE.getPremiumAmount(
-            address(zeroDayHook),
+            address(mockHook),
             true, // isPut
             block.timestamp + params.ttl - 10 minutes,
             params.ttl,
@@ -726,9 +718,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
 
         (signature[0].v, signature[0].r, signature[0].s) = _createSignature(
             trader,
-            handler.getHandlerIdentifier(
-                abi.encode(address(pool), address(zeroDayHook), vars.tickLower, vars.tickUpper)
-            ),
+            handler.getHandlerIdentifier(abi.encode(address(pool), address(mockHook), vars.tickLower, vars.tickUpper)),
             MintOptionFirewall.RangeCheckData({
                 user: trader,
                 pool: address(pool),
@@ -795,7 +785,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         // Setup: Buy a call option
         testBuyCallOption();
 
-        (vars.sqrtPriceX96, vars.currentTick,,,,,) = pool.slot0();
+        (vars.sqrtPriceX96, vars.currentTick,,,,,) = KodiakV3Pool(address(pool)).slot0();
         int24 tickSpacing = pool.tickSpacing();
         vars.tickUpper = ((vars.currentTick / tickSpacing) * tickSpacing) - tickSpacing;
         vars.tickLower = vars.tickUpper - 1 * tickSpacing;
@@ -818,7 +808,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         );
 
         vm.stopPrank();
-        (vars.sqrtPriceX96, vars.currentTick,,,,,) = pool.slot0();
+        (vars.sqrtPriceX96, vars.currentTick,,,,,) = KodiakV3Pool(address(pool)).slot0();
 
         // Prepare for exercise
         uint256 optionId = 1; // Assuming this is the first option minted
@@ -854,9 +844,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         ExerciseOptionFirewall.Signature[] memory signature = new ExerciseOptionFirewall.Signature[](1);
         (signature[0].v, signature[0].r, signature[0].s) = _createSignatureExercise(
             trader,
-            handler.getHandlerIdentifier(
-                abi.encode(address(pool), address(zeroDayHook), vars.tickLower, vars.tickUpper)
-            ),
+            handler.getHandlerIdentifier(abi.encode(address(pool), address(mockHook), vars.tickLower, vars.tickUpper)),
             ExerciseOptionFirewall.RangeCheckData({
                 user: trader,
                 pool: address(pool),
@@ -906,7 +894,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         // Setup: Buy a put option
         testBuyPutOption();
 
-        (vars.sqrtPriceX96, vars.currentTick,,,,,) = pool.slot0();
+        (vars.sqrtPriceX96, vars.currentTick,,,,,) = KodiakV3Pool(address(pool)).slot0();
         int24 tickSpacing = pool.tickSpacing();
         vars.tickLower = ((vars.currentTick / tickSpacing) * tickSpacing) + tickSpacing;
         vars.tickUpper = vars.tickLower + 1 * tickSpacing;
@@ -929,7 +917,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         );
 
         vm.stopPrank();
-        (vars.sqrtPriceX96, vars.currentTick,,,,,) = pool.slot0();
+        (vars.sqrtPriceX96, vars.currentTick,,,,,) = KodiakV3Pool(address(pool)).slot0();
 
         // Prepare for exercise
         uint256 optionId = 1; // Assuming this is the first option minted
@@ -965,9 +953,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         ExerciseOptionFirewall.Signature[] memory signature = new ExerciseOptionFirewall.Signature[](1);
         (signature[0].v, signature[0].r, signature[0].s) = _createSignatureExercise(
             trader,
-            handler.getHandlerIdentifier(
-                abi.encode(address(pool), address(zeroDayHook), vars.tickLower, vars.tickUpper)
-            ),
+            handler.getHandlerIdentifier(abi.encode(address(pool), address(mockHook), vars.tickLower, vars.tickUpper)),
             ExerciseOptionFirewall.RangeCheckData({
                 user: trader,
                 pool: address(pool),
@@ -1016,7 +1002,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         // Setup: Buy a call option
         testBuyCallOption();
 
-        (vars.sqrtPriceX96, vars.currentTick,,,,,) = pool.slot0();
+        (vars.sqrtPriceX96, vars.currentTick,,,,,) = KodiakV3Pool(address(pool)).slot0();
         int24 tickSpacing = pool.tickSpacing();
         vars.tickUpper = ((vars.currentTick / tickSpacing) * tickSpacing) - tickSpacing;
         vars.tickLower = vars.tickUpper - 1 * tickSpacing;
@@ -1095,7 +1081,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         // Setup: Buy a call option
         testBuyCallOption();
 
-        (vars.sqrtPriceX96, vars.currentTick,,,,,) = pool.slot0();
+        (vars.sqrtPriceX96, vars.currentTick,,,,,) = KodiakV3Pool(address(pool)).slot0();
         int24 tickSpacing = pool.tickSpacing();
         vars.tickUpper = ((vars.currentTick / tickSpacing) * tickSpacing) - tickSpacing;
         vars.tickLower = vars.tickUpper - 1 * tickSpacing;
@@ -1155,7 +1141,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         // Setup: Buy a put option
         testBuyPutOption();
 
-        (vars.sqrtPriceX96, vars.currentTick,,,,,) = pool.slot0();
+        (vars.sqrtPriceX96, vars.currentTick,,,,,) = KodiakV3Pool(address(pool)).slot0();
         int24 tickSpacing = pool.tickSpacing();
         vars.tickLower = ((vars.currentTick / tickSpacing) * tickSpacing) + tickSpacing;
         vars.tickUpper = vars.tickLower + 1 * tickSpacing;
@@ -1234,7 +1220,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         // Setup: Buy a call option
         testBuyCallOption();
 
-        (vars.sqrtPriceX96, vars.currentTick,,,,,) = pool.slot0();
+        (vars.sqrtPriceX96, vars.currentTick,,,,,) = KodiakV3Pool(address(pool)).slot0();
         int24 tickSpacing = pool.tickSpacing();
         vars.tickUpper = ((vars.currentTick / tickSpacing) * tickSpacing) - tickSpacing;
         vars.tickLower = vars.tickUpper - 1 * tickSpacing;
@@ -1298,7 +1284,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         // Setup: Buy a call option
         testBuyCallOption();
 
-        (vars.sqrtPriceX96, vars.currentTick,,,,,) = pool.slot0();
+        (vars.sqrtPriceX96, vars.currentTick,,,,,) = KodiakV3Pool(address(pool)).slot0();
         int24 tickSpacing = pool.tickSpacing();
         vars.tickUpper = ((vars.currentTick / tickSpacing) * tickSpacing) - tickSpacing;
         vars.tickLower = vars.tickUpper - 1 * tickSpacing;
@@ -1362,7 +1348,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         // Setup: Buy a put option
         testBuyPutOption();
 
-        (vars.sqrtPriceX96, vars.currentTick,,,,,) = pool.slot0();
+        (vars.sqrtPriceX96, vars.currentTick,,,,,) = KodiakV3Pool(address(pool)).slot0();
         int24 tickSpacing = pool.tickSpacing();
         vars.tickLower = ((vars.currentTick / tickSpacing) * tickSpacing) + tickSpacing;
         vars.tickUpper = vars.tickLower + 1 * tickSpacing;
@@ -1425,7 +1411,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         // Setup: Buy a call option
         testBuyCallOption();
 
-        (vars.sqrtPriceX96, vars.currentTick,,,,,) = pool.slot0();
+        (vars.sqrtPriceX96, vars.currentTick,,,,,) = KodiakV3Pool(address(pool)).slot0();
         int24 tickSpacing = pool.tickSpacing();
         vars.tickUpper = ((vars.currentTick / tickSpacing) * tickSpacing) - tickSpacing;
         vars.tickLower = vars.tickUpper - 1 * tickSpacing;

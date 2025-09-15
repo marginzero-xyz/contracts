@@ -1,39 +1,27 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity >=0.8.0 <0.9.0;
 
-import {V3BaseHandler} from "../V3BaseHandler.sol";
+import {V3BaseHandlerAerodrome} from "../V3BaseHandlerAerodrome.sol";
 import {LiquidityManager} from "./LiquidityManager.sol";
 
-import {IV3Pool} from "../../interfaces/handlers/V3/IV3Pool.sol";
+import {ICLPool as IV3Pool} from "./ICLPool.sol";
 
-interface IMerklDistributor {
-    function claimWithRecipient(
-        address[] calldata users,
-        address[] calldata tokens,
-        uint256[] calldata amounts,
-        bytes32[][] calldata proofs,
-        address[] calldata recipients,
-        bytes[] memory datas
-    ) external;
-}
-
-/// @title SushiV3Handler
-/// @author 0xcarrot
-/// @notice Handles Sushi V3 specific operations
-/// @dev Inherits from V3BaseHandler and LiquidityManager
-contract SushiV3Handler is V3BaseHandler, LiquidityManager {
-    /// @notice Constructs the SushiV3Handler contract
+/// @title AerodromeHandler
+/// @author arcwardeth
+/// @notice Handles Aerodrome V3 specific operations
+/// @dev Inherits from V3BaseHandlerAerodrome and LiquidityManager
+contract AerodromeHandler is V3BaseHandlerAerodrome, LiquidityManager {
+    /// @notice Constructs the AerodromeHandler contract
     /// @param _owner Address of the contract owner
     /// @param _feeReceiver Address to receive fees
-    /// @param _factory Address of the Sushi V3 factory
-    /// @param _pool_init_code_hash Initialization code hash for Sushi V3 pools
-    constructor(address _owner, address _feeReceiver, address _factory, bytes32 _pool_init_code_hash)
-        V3BaseHandler(_owner, _feeReceiver)
-        LiquidityManager(_factory, _pool_init_code_hash)
+    /// @param _factory Address of the Aerodrome factory
+    constructor(address _owner, address _feeReceiver, address _factory)
+        V3BaseHandlerAerodrome(_owner, _feeReceiver)
+        LiquidityManager(_factory)
     {}
 
-    /// @notice Adds liquidity to a Sushi V3 pool
-    /// @dev Overrides the _addLiquidity function from V3BaseHandler
+    /// @notice Adds liquidity to a Aerodrome pool
+    /// @dev Overrides the _addLiquidity function from V3BaseHandlerAerodrome
     /// @param self Whether the function is called internally or externally
     /// @param tki TokenIdInfo struct containing token and fee information
     /// @param tickLower The lower tick of the position
@@ -56,7 +44,7 @@ contract SushiV3Handler is V3BaseHandler, LiquidityManager {
                 LiquidityManager.AddLiquidityParams({
                     token0: tki.token0,
                     token1: tki.token1,
-                    fee: tki.fee,
+                    tickSpacing: tki.tickSpacing,
                     recipient: address(this),
                     tickLower: tickLower,
                     tickUpper: tickUpper,
@@ -67,11 +55,11 @@ contract SushiV3Handler is V3BaseHandler, LiquidityManager {
                 })
             );
         } else {
-            (l, a0, a1,) = SushiV3Handler(address(this)).addLiquidity(
+            (l, a0, a1,) = AerodromeHandler(address(this)).addLiquidity(
                 LiquidityManager.AddLiquidityParams({
                     token0: tki.token0,
                     token1: tki.token1,
-                    fee: tki.fee,
+                    tickSpacing: tki.tickSpacing,
                     recipient: address(this),
                     tickLower: tickLower,
                     tickUpper: tickUpper,
@@ -84,9 +72,9 @@ contract SushiV3Handler is V3BaseHandler, LiquidityManager {
         }
     }
 
-    /// @notice Removes liquidity from a Sushi V3 pool
-    /// @dev Overrides the _removeLiquidity function from V3BaseHandler
-    /// @param _pool The Sushi V3 pool
+    /// @notice Removes liquidity from a Aerodrome pool
+    /// @dev Overrides the _removeLiquidity function from V3BaseHandlerAerodrome
+    /// @param _pool The Aerodrome pool
     /// @param tickLower The lower tick of the position
     /// @param tickUpper The upper tick of the position
     /// @param liquidity The amount of liquidity to remove
@@ -99,17 +87,5 @@ contract SushiV3Handler is V3BaseHandler, LiquidityManager {
         returns (uint256 amount0, uint256 amount1)
     {
         (amount0, amount1) = _pool.burn(tickLower, tickUpper, liquidity);
-    }
-
-    function claimMerklRewards(
-        address distributor,
-        address[] calldata users,
-        address[] calldata tokens,
-        uint256[] calldata amounts,
-        bytes32[][] calldata proofs,
-        address[] calldata recipients,
-        bytes[] memory datas
-    ) external onlyOwner {
-        IMerklDistributor(distributor).claimWithRecipient(users, tokens, amounts, proofs, recipients, datas);
     }
 }

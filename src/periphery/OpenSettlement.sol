@@ -43,16 +43,18 @@ contract OpenSettlement is Ownable {
     mapping(address => bool) public isWhitelistedSettler;
 
     /// @notice Constructs the OpenSettlement contract
+    /// @param _owner Owner of the contract
     /// @param _isWhitelistedSettler Initial whitelisted settler address
     /// @param _publicFeeRecipient Address to receive settlement fees
     /// @param _settleFeeProtocol Fee percentage for whitelisted settlers
     /// @param _settleFeePublic Fee percentage for public settlers
     constructor(
+        address _owner,
         address _isWhitelistedSettler,
         address _publicFeeRecipient,
         uint256 _settleFeeProtocol,
         uint256 _settleFeePublic
-    ) Ownable(msg.sender) {
+    ) Ownable(_owner) {
         settleFeeProtocol = _settleFeeProtocol;
         settleFeePublic = _settleFeePublic;
         isWhitelistedSettler[_isWhitelistedSettler] = true;
@@ -70,7 +72,7 @@ contract OpenSettlement is Ownable {
         uint256 optionId,
         IOptionMarketOTMFE.SettleOptionParams memory settleParams
     ) external returns (IOptionMarketOTMFE.AssetsCache memory) {
-        (IOptionMarketOTMFE.AssetsCache memory ac) = market.settleOption(settleParams);
+        IOptionMarketOTMFE.AssetsCache memory ac = market.settleOption(settleParams);
 
         if (!ac.isSettle) revert OptionNotSettled();
 

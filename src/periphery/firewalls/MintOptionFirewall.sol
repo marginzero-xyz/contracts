@@ -60,8 +60,8 @@ contract MintOptionFirewall is Multicall, EIP712, Ownable, IERC721Receiver {
         "RangeCheck(address user,address pool,address market,int24 minTickLower,int24 maxTickUpper,uint160 minSqrtPriceX96,uint160 maxSqrtPriceX96,uint256 deadline)"
     );
 
-    constructor(address _signer) EIP712("MintOptionFirewall", "1") Ownable(msg.sender) {
-        whitelistedSigners[_signer] = true;
+    constructor(address _owner) EIP712("MintOptionFirewall", "1") Ownable(_owner) {
+        whitelistedSigners[_owner] = true;
     }
 
     function updateWhitelistedSigner(address _signer, bool _isWhitelisted) external onlyOwner {

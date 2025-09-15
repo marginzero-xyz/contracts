@@ -3,29 +3,28 @@ pragma solidity ^0.8.0;
 
 import "forge-std/Test.sol";
 
-import {UniswapV3Handler} from "../../src/handlers/uniswap-v3/UniswapV3Handler.sol";
+import {AerodromeHandler} from "../../src/handlers/aerodrome/AerodromeHandler.sol";
 import {PositionManager} from "../../src/PositionManager.sol";
 import {OptionMarketOTMFE} from "../../src/apps/options/OptionMarketOTMFE.sol";
 import {OptionPricingLinearV2} from "../../src/apps/options/pricing/OptionPricingLinearV2.sol";
 import {ClammFeeStrategyV2} from "../../src/apps/options/pricing/fees/ClammFeeStrategyV2.sol";
-import {UniswapV3FactoryDeployer} from "../../test/handlers/uniswap-v3/uniswap-v3-utils/UniswapV3FactoryDeployer.sol";
 
-import {UniswapV3PoolUtils} from "../../test/handlers/uniswap-v3/uniswap-v3-utils/UniswapV3PoolUtils.sol";
-import {UniswapV3LiquidityManagement} from
-    "../../test/handlers/uniswap-v3/uniswap-v3-utils/UniswapV3LiquidityManagement.sol";
+import {AerodromePoolUtils} from "../../test/handlers/aerodrome/AerodromePoolUtils.sol";
+import {AerodromeLiquidityManagement} from "../../test/handlers/aerodrome/AerodromeLiquidityManagement.sol";
+import {ICLFactory} from "../../src/handlers/aerodrome/ICLFactory.sol";
 
-import {IUniswapV3Factory} from "@uniswap/v3-core/contracts/interfaces/IUniswapV3Factory.sol";
-import {IUniswapV3Pool} from "@uniswap/v3-core/contracts/interfaces/IUniswapV3Pool.sol";
+import {ICLPool} from "../../src/handlers/aerodrome/ICLPool.sol";
 import {IVerifiedSpotPrice} from "../../src/interfaces/IVerifiedSpotPrice.sol";
 import {IOptionMarketOTMFE} from "../../src/interfaces/apps/options/IOptionMarketOTMFE.sol";
 import {PoolSpotPrice} from "../../src/apps/options/pricing/PoolSpotPrice.sol";
+import {IUniswapV3Pool} from "@uniswap/v3-core/contracts/interfaces/IUniswapV3Pool.sol";
 
 import {ISwapper} from "../../src/interfaces/ISwapper.sol";
 
 import {MockERC20} from "../../test/mocks/MockERC20.sol";
 import {MockHook} from "../../test/mocks/MockHook.sol";
-import {IV3Pool} from "../../src/interfaces/handlers/V3/IV3Pool.sol";
-import {V3BaseHandler} from "../../src/handlers/V3BaseHandler.sol";
+import {ICLPool} from "../../src/handlers/aerodrome/ICLPool.sol";
+import {V3BaseHandlerAerodrome} from "../../src/handlers/V3BaseHandlerAerodrome.sol";
 import {IHandler} from "../../src/interfaces/IHandler.sol";
 import {TickMath} from "@uniswap/v3-core/contracts/libraries/TickMath.sol";
 import {LiquidityAmounts} from "v3-periphery/libraries/LiquidityAmounts.sol";
@@ -37,23 +36,20 @@ import {AddLiquidityRouter} from "../../src/periphery/routers/AddLiquidityRouter
 import {MintOptionFirewall} from "../../src/periphery/firewalls/MintOptionFirewall.sol";
 import {ExerciseOptionFirewall} from "../../src/periphery/firewalls/ExerciseOptionFirewall.sol";
 
-import {BoundedTTLHook_0Day} from "../../src/handlers/hooks/BoundedTTLHook_0Day.sol";
-
-contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
+contract AerodromeHandlerOptionMarketOTMFE is Test {
     using TickMath for int24;
 
     PositionManager public positionManager;
-    UniswapV3Handler public handler;
+    AerodromeHandler public handler;
 
     OptionMarketOTMFE public optionMarketOTMFE;
     OptionPricingLinearV2 public optionPricingLinearV2;
     ClammFeeStrategyV2 public clammFeeStrategyV2;
 
-    UniswapV3FactoryDeployer public factoryDeployer;
-    IUniswapV3Factory public factory;
+    address factory = 0x5e7BB104d84c7CB9B682AaC2F3d509f5F406809A;
 
-    UniswapV3PoolUtils public uniswapV3PoolUtils;
-    UniswapV3LiquidityManagement public uniswapV3LiquidityManagement;
+    AerodromePoolUtils public aerodromePoolUtils;
+    AerodromeLiquidityManagement public aerodromeLiquidityManagement;
 
     OpenSettlement public openSettlement;
     AddLiquidityRouter public addLiquidityRouter;
@@ -83,39 +79,35 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
     uint256 verifiedSignerPrivateKey = uint256(keccak256("verifiedSigner"));
     address verifiedSigner = vm.addr(verifiedSignerPrivateKey);
 
-    IUniswapV3Pool public pool;
+    ICLPool public pool;
+
+    MockHook public mockHook;
 
     PoolSpotPrice public poolSpotPrice;
 
-    BoundedTTLHook_0Day public zeroDayHook;
-
     function setUp() public {
-        // Deploy the Uniswap V3 Factory
-
-        zeroDayHook = new BoundedTTLHook_0Day(owner);
+        vm.createSelectFork(vm.envString("BASE_RPC_URL"), 23263050);
 
         // Deploy mock tokens for testing
-        USDC = new MockERC20("USD Coin", "USDC", 6);
         ETH = new MockERC20("Ethereum", "ETH", 18);
+        USDC = new MockERC20("USD Coin", "USDC", 6);
 
-        factory = IUniswapV3Factory(deployUniswapV3Factory());
+        aerodromePoolUtils = new AerodromePoolUtils(factory);
 
-        uniswapV3PoolUtils = new UniswapV3PoolUtils();
-
-        uniswapV3LiquidityManagement = new UniswapV3LiquidityManagement(address(factory));
+        aerodromeLiquidityManagement = new AerodromeLiquidityManagement(factory);
 
         uint160 sqrtPriceX96 = 1771595571142957166518320255467520;
-        pool = IUniswapV3Pool(uniswapV3PoolUtils.deployAndInitializePool(factory, ETH, USDC, 500, sqrtPriceX96));
+        pool = ICLPool(aerodromePoolUtils.deployAndInitializePool(ETH, USDC, 100, sqrtPriceX96));
 
-        uniswapV3PoolUtils.addLiquidity(
-            UniswapV3PoolUtils.AddLiquidityStruct({
-                liquidityManager: address(uniswapV3LiquidityManagement),
-                pool: pool,
+        aerodromePoolUtils.addLiquidity(
+            AerodromePoolUtils.AddLiquidityStruct({
+                liquidityManager: address(aerodromeLiquidityManagement),
+                pool: address(pool),
                 user: owner,
                 desiredAmount0: 10_000_000e6,
                 desiredAmount1: 10 ether,
-                desiredTickLower: 200010,
-                desiredTickUpper: 201010,
+                desiredTickLower: 200000,
+                desiredTickUpper: 201100,
                 requireMint: true
             })
         );
@@ -125,26 +117,27 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         positionManager = new PositionManager(owner);
 
         // Deploy the Uniswap V3 handler with additional arguments
-        handler = new UniswapV3Handler(
+        handler = new AerodromeHandler(
             owner,
             feeReceiver, // _feeReceiver
-            address(factory), // _factory
-            0xa598dd2fba360510c5a8f02f44423a4468e902df5857dbce3ca162a43a3a31ff
+            address(factory) // _factory
         );
         // Whitelist the handler
         positionManager.updateWhitelistHandler(address(handler), true);
 
         handler.updateHandlerSettings(address(positionManager), true, address(0), 6 hours, address(feeReceiver));
 
+        mockHook = new MockHook();
+
         handler.registerHook(
-            address(zeroDayHook),
+            address(mockHook),
             IHandler.HookPermInfo({
-                onMint: true,
-                onBurn: true,
-                onUse: true,
-                onUnuse: true,
-                onDonate: true,
-                allowSplit: true
+                onMint: false,
+                onBurn: false,
+                onUse: false,
+                onUnuse: false,
+                onDonate: false,
+                allowSplit: false
             })
         );
 
@@ -171,8 +164,6 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
             address(poolSpotPrice)
         );
 
-        zeroDayHook.updateWhitelistedAppsStatus(address(optionMarketOTMFE), true);
-
         exerciseOptionFirewall.updateWhitelistedMarket(address(optionMarketOTMFE), true);
 
         optionPricingLinearV2.updateVolatilityOffset(address(optionMarketOTMFE), 10_000);
@@ -193,10 +184,10 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
 
         openSettlement = new OpenSettlement(owner, settler, publicFeeRecipient, 1000, 500);
 
-        optionMarketOTMFE.updatePoolApprovals(
+        optionMarketOTMFE.updatePoolApporvals(
             address(exerciseOptionFirewall), true, address(pool), true, 86400, 1729065600, true, 10 minutes
         );
-        optionMarketOTMFE.updatePoolApprovals(
+        optionMarketOTMFE.updatePoolApporvals(
             address(openSettlement), true, address(pool), true, 86400, 1729065600, true, 10 minutes
         );
 
@@ -212,7 +203,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
             0
         );
 
-        optionMarketOTMFE.setApprovedSwapperAndHook(address(this), true, address(zeroDayHook), true);
+        optionMarketOTMFE.setApprovedSwapperAndHook(address(this), true, address(mockHook), true);
 
         optionMarketOTMFE.setApprovedMinter(address(mintOptionFirewall), true);
 
@@ -285,7 +276,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         uint256 amount0Desired = 0; // No USDC
 
         // Get current price and tick
-        (vars.sqrtPriceX96, vars.currentTick,,,,,) = pool.slot0();
+        (vars.sqrtPriceX96, vars.currentTick,,,,) = ICLPool(address(pool)).slot0();
 
         console.log("currentTick", vars.currentTick);
 
@@ -307,9 +298,9 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
             amount1Desired
         );
 
-        V3BaseHandler.MintPositionParams memory params = V3BaseHandler.MintPositionParams({
-            pool: IV3Pool(address(pool)),
-            hook: address(zeroDayHook),
+        V3BaseHandlerAerodrome.MintPositionParams memory params = V3BaseHandlerAerodrome.MintPositionParams({
+            pool: ICLPool(address(pool)),
+            hook: address(mockHook),
             tickLower: vars.tickLower,
             tickUpper: vars.tickUpper,
             liquidity: vars.liquidity
@@ -329,9 +320,8 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
 
         assertTrue(vars.sharesMinted > 0, "Shares minted should be greater than 0");
 
-        vars.tokenId = handler.getHandlerIdentifier(
-            abi.encode(address(pool), address(zeroDayHook), vars.tickLower, vars.tickUpper)
-        );
+        vars.tokenId =
+            handler.getHandlerIdentifier(abi.encode(address(pool), address(mockHook), vars.tickLower, vars.tickUpper));
 
         TokenIdInfo memory info;
         (
@@ -381,7 +371,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         uint256 amount1Desired = 0; // No ETH
 
         // Get current price and tick
-        (vars.sqrtPriceX96, vars.currentTick,,,,,) = pool.slot0();
+        (vars.sqrtPriceX96, vars.currentTick,,,,) = ICLPool(address(pool)).slot0();
 
         // Calculate tick range
         int24 tickSpacing = pool.tickSpacing();
@@ -401,9 +391,9 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
             amount1Desired
         );
 
-        V3BaseHandler.MintPositionParams memory params = V3BaseHandler.MintPositionParams({
-            pool: IV3Pool(address(pool)),
-            hook: address(zeroDayHook),
+        V3BaseHandlerAerodrome.MintPositionParams memory params = V3BaseHandlerAerodrome.MintPositionParams({
+            pool: ICLPool(address(pool)),
+            hook: address(mockHook),
             tickLower: vars.tickLower,
             tickUpper: vars.tickUpper,
             liquidity: vars.liquidity
@@ -422,9 +412,8 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         );
         assertTrue(vars.sharesMinted > 0, "Shares minted should be greater than 0");
 
-        vars.tokenId = handler.getHandlerIdentifier(
-            abi.encode(address(pool), address(zeroDayHook), vars.tickLower, vars.tickUpper)
-        );
+        vars.tokenId =
+            handler.getHandlerIdentifier(abi.encode(address(pool), address(mockHook), vars.tickLower, vars.tickUpper));
 
         TokenIdInfo memory info;
         (
@@ -471,7 +460,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         vars.sharesMinted = addLiquidityForCALL();
 
         // Get current price and tick
-        (vars.sqrtPriceX96, vars.currentTick,,,,,) = pool.slot0();
+        (vars.sqrtPriceX96, vars.currentTick,,,,) = ICLPool(address(pool)).slot0();
 
         // Calculate tick range for the long position
         int24 tickSpacing = pool.tickSpacing();
@@ -482,8 +471,8 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         OptionMarketOTMFE.OptionTicks[] memory optionTicks = new OptionMarketOTMFE.OptionTicks[](1);
         optionTicks[0] = OptionMarketOTMFE.OptionTicks({
             _handler: IHandler(address(handler)),
-            pool: pool,
-            hook: address(zeroDayHook),
+            pool: IUniswapV3Pool(address(pool)),
+            hook: address(mockHook),
             tickLower: vars.tickLower,
             tickUpper: vars.tickUpper,
             liquidityToUse: uint128(vars.sharesMinted)
@@ -499,10 +488,10 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         });
 
         // Get current price and calculate expected premium
-        uint256 currentPrice = poolSpotPrice.getSpotPrice(pool, address(ETH), ETH.decimals());
-        uint256 strike = optionMarketOTMFE.getPricePerCallAssetViaTick(pool, params.tickUpper);
+        uint256 currentPrice = poolSpotPrice.getSpotPrice(IUniswapV3Pool(address(pool)), address(ETH), ETH.decimals());
+        uint256 strike = optionMarketOTMFE.getPricePerCallAssetViaTick(IUniswapV3Pool(address(pool)), params.tickUpper);
         uint256 expectedPremium = optionMarketOTMFE.getPremiumAmount(
-            address(zeroDayHook),
+            address(mockHook),
             false, // isCall
             block.timestamp + params.ttl,
             params.ttl,
@@ -534,7 +523,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         vars.sharesMinted = addLiquidityForCALL();
 
         // Get current price and tick
-        (vars.sqrtPriceX96, vars.currentTick,,,,,) = pool.slot0();
+        (vars.sqrtPriceX96, vars.currentTick,,,,) = ICLPool(address(pool)).slot0();
 
         // Calculate tick range for the long position
         int24 tickSpacing = pool.tickSpacing();
@@ -545,8 +534,8 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         IOptionMarketOTMFE.OptionTicks[] memory optionTicks = new IOptionMarketOTMFE.OptionTicks[](1);
         optionTicks[0] = IOptionMarketOTMFE.OptionTicks({
             _handler: IHandler(address(handler)),
-            pool: pool,
-            hook: address(zeroDayHook),
+            pool: IUniswapV3Pool(address(pool)),
+            hook: address(mockHook),
             tickLower: vars.tickLower,
             tickUpper: vars.tickUpper,
             liquidityToUse: uint128(vars.sharesMinted)
@@ -562,8 +551,8 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         });
 
         // Get current price and calculate expected premium
-        uint256 currentPrice = poolSpotPrice.getSpotPrice(pool, address(ETH), ETH.decimals());
-        uint256 strike = optionMarketOTMFE.getPricePerCallAssetViaTick(pool, params.tickUpper);
+        uint256 currentPrice = poolSpotPrice.getSpotPrice(IUniswapV3Pool(address(pool)), address(ETH), ETH.decimals());
+        uint256 strike = optionMarketOTMFE.getPricePerCallAssetViaTick(IUniswapV3Pool(address(pool)), params.tickUpper);
         uint256 amount = LiquidityAmounts.getAmount1ForLiquidity(
             TickMath.getSqrtRatioAtTick(vars.tickLower),
             TickMath.getSqrtRatioAtTick(vars.tickUpper),
@@ -571,7 +560,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         );
 
         uint256 expectedPremium = optionMarketOTMFE.getPremiumAmount(
-            address(zeroDayHook),
+            address(mockHook),
             false, // isCall
             block.timestamp + params.ttl - 10 minutes,
             params.ttl,
@@ -593,9 +582,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
 
         (signature[0].v, signature[0].r, signature[0].s) = _createSignature(
             trader,
-            handler.getHandlerIdentifier(
-                abi.encode(address(pool), address(zeroDayHook), vars.tickLower, vars.tickUpper)
-            ),
+            handler.getHandlerIdentifier(abi.encode(address(pool), address(mockHook), vars.tickLower, vars.tickUpper)),
             MintOptionFirewall.RangeCheckData({
                 user: trader,
                 pool: address(pool),
@@ -667,7 +654,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         vars.sharesMinted = addLiquidityForPUT();
 
         // Get current price and tick
-        (vars.sqrtPriceX96, vars.currentTick,,,,,) = pool.slot0();
+        (vars.sqrtPriceX96, vars.currentTick,,,,) = ICLPool(address(pool)).slot0();
 
         // Calculate tick range for the long position
         int24 tickSpacing = pool.tickSpacing();
@@ -678,8 +665,8 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         IOptionMarketOTMFE.OptionTicks[] memory optionTicks = new IOptionMarketOTMFE.OptionTicks[](1);
         optionTicks[0] = IOptionMarketOTMFE.OptionTicks({
             _handler: IHandler(address(handler)),
-            pool: pool,
-            hook: address(zeroDayHook),
+            pool: IUniswapV3Pool(address(pool)),
+            hook: address(mockHook),
             tickLower: vars.tickLower,
             tickUpper: vars.tickUpper,
             liquidityToUse: uint128(vars.sharesMinted)
@@ -695,8 +682,8 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         });
 
         // Get current price and calculate expected premium
-        uint256 currentPrice = poolSpotPrice.getSpotPrice(pool, address(ETH), ETH.decimals());
-        uint256 strike = optionMarketOTMFE.getPricePerCallAssetViaTick(pool, params.tickLower);
+        uint256 currentPrice = poolSpotPrice.getSpotPrice(IUniswapV3Pool(address(pool)), address(ETH), ETH.decimals());
+        uint256 strike = optionMarketOTMFE.getPricePerCallAssetViaTick(IUniswapV3Pool(address(pool)), params.tickLower);
         uint256 amount = LiquidityAmounts.getAmount0ForLiquidity(
             TickMath.getSqrtRatioAtTick(vars.tickLower),
             TickMath.getSqrtRatioAtTick(vars.tickUpper),
@@ -704,7 +691,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         );
 
         uint256 expectedPremium = optionMarketOTMFE.getPremiumAmount(
-            address(zeroDayHook),
+            address(mockHook),
             true, // isPut
             block.timestamp + params.ttl - 10 minutes,
             params.ttl,
@@ -726,9 +713,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
 
         (signature[0].v, signature[0].r, signature[0].s) = _createSignature(
             trader,
-            handler.getHandlerIdentifier(
-                abi.encode(address(pool), address(zeroDayHook), vars.tickLower, vars.tickUpper)
-            ),
+            handler.getHandlerIdentifier(abi.encode(address(pool), address(mockHook), vars.tickLower, vars.tickUpper)),
             MintOptionFirewall.RangeCheckData({
                 user: trader,
                 pool: address(pool),
@@ -795,7 +780,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         // Setup: Buy a call option
         testBuyCallOption();
 
-        (vars.sqrtPriceX96, vars.currentTick,,,,,) = pool.slot0();
+        (vars.sqrtPriceX96, vars.currentTick,,,,) = ICLPool(address(pool)).slot0();
         int24 tickSpacing = pool.tickSpacing();
         vars.tickUpper = ((vars.currentTick / tickSpacing) * tickSpacing) - tickSpacing;
         vars.tickLower = vars.tickUpper - 1 * tickSpacing;
@@ -804,7 +789,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         vm.warp(block.timestamp + 85200); // 10 minutes before
 
         // price increase
-        uint256 swapAmount = 10000e6; // 50,000 USDC
+        uint256 swapAmount = 100000e6; // 50,000 USDC
         vm.startPrank(address(this));
         USDC.mint(address(this), swapAmount);
         USDC.approve(address(pool), swapAmount);
@@ -818,7 +803,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         );
 
         vm.stopPrank();
-        (vars.sqrtPriceX96, vars.currentTick,,,,,) = pool.slot0();
+        (vars.sqrtPriceX96, vars.currentTick,,,,) = ICLPool(address(pool)).slot0();
 
         // Prepare for exercise
         uint256 optionId = 1; // Assuming this is the first option minted
@@ -854,9 +839,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         ExerciseOptionFirewall.Signature[] memory signature = new ExerciseOptionFirewall.Signature[](1);
         (signature[0].v, signature[0].r, signature[0].s) = _createSignatureExercise(
             trader,
-            handler.getHandlerIdentifier(
-                abi.encode(address(pool), address(zeroDayHook), vars.tickLower, vars.tickUpper)
-            ),
+            handler.getHandlerIdentifier(abi.encode(address(pool), address(mockHook), vars.tickLower, vars.tickUpper)),
             ExerciseOptionFirewall.RangeCheckData({
                 user: trader,
                 pool: address(pool),
@@ -895,7 +878,8 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         assertFalse(result.isSettle, "Should not be a settlement");
 
         // Calculate expected profit
-        uint256 strikePrice = optionMarketOTMFE.getPricePerCallAssetViaTick(pool, vars.tickUpper);
+        uint256 strikePrice =
+            optionMarketOTMFE.getPricePerCallAssetViaTick(IUniswapV3Pool(address(pool)), vars.tickUpper);
 
         uint256 expectedProfit = vars.balanceAfter.balance0 - vars.balanceBefore.balance0;
         assertEq(result.totalProfit, expectedProfit, "Profit should be close to expected");
@@ -906,7 +890,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         // Setup: Buy a put option
         testBuyPutOption();
 
-        (vars.sqrtPriceX96, vars.currentTick,,,,,) = pool.slot0();
+        (vars.sqrtPriceX96, vars.currentTick,,,,) = ICLPool(address(pool)).slot0();
         int24 tickSpacing = pool.tickSpacing();
         vars.tickLower = ((vars.currentTick / tickSpacing) * tickSpacing) + tickSpacing;
         vars.tickUpper = vars.tickLower + 1 * tickSpacing;
@@ -915,7 +899,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         vm.warp(block.timestamp + 85200); // 10 minutes before expiry
 
         // Price decrease
-        uint256 swapAmount = 5 ether; // 5 ETH
+        uint256 swapAmount = 10 ether; // 5 ETH
         vm.startPrank(address(this));
         ETH.mint(address(this), swapAmount);
         ETH.approve(address(pool), swapAmount);
@@ -929,7 +913,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         );
 
         vm.stopPrank();
-        (vars.sqrtPriceX96, vars.currentTick,,,,,) = pool.slot0();
+        (vars.sqrtPriceX96, vars.currentTick,,,,) = ICLPool(address(pool)).slot0();
 
         // Prepare for exercise
         uint256 optionId = 1; // Assuming this is the first option minted
@@ -965,9 +949,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         ExerciseOptionFirewall.Signature[] memory signature = new ExerciseOptionFirewall.Signature[](1);
         (signature[0].v, signature[0].r, signature[0].s) = _createSignatureExercise(
             trader,
-            handler.getHandlerIdentifier(
-                abi.encode(address(pool), address(zeroDayHook), vars.tickLower, vars.tickUpper)
-            ),
+            handler.getHandlerIdentifier(abi.encode(address(pool), address(mockHook), vars.tickLower, vars.tickUpper)),
             ExerciseOptionFirewall.RangeCheckData({
                 user: trader,
                 pool: address(pool),
@@ -1005,7 +987,8 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         assertFalse(result.isSettle, "Should not be a settlement");
 
         // Calculate expected profit
-        uint256 strikePrice = optionMarketOTMFE.getPricePerCallAssetViaTick(pool, vars.tickLower);
+        uint256 strikePrice =
+            optionMarketOTMFE.getPricePerCallAssetViaTick(IUniswapV3Pool(address(pool)), vars.tickLower);
 
         uint256 expectedProfit = vars.balanceAfter.balance1 - vars.balanceBefore.balance1;
         assertEq(result.totalProfit, expectedProfit, "Profit should be equal to expected");
@@ -1016,7 +999,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         // Setup: Buy a call option
         testBuyCallOption();
 
-        (vars.sqrtPriceX96, vars.currentTick,,,,,) = pool.slot0();
+        (vars.sqrtPriceX96, vars.currentTick,,,,) = ICLPool(address(pool)).slot0();
         int24 tickSpacing = pool.tickSpacing();
         vars.tickUpper = ((vars.currentTick / tickSpacing) * tickSpacing) - tickSpacing;
         vars.tickLower = vars.tickUpper - 1 * tickSpacing;
@@ -1025,7 +1008,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         vm.warp(block.timestamp + 86500); // 10 minutes before
 
         // price increase
-        uint256 swapAmount = 10000e6; // 50,000 USDC
+        uint256 swapAmount = 100000e6; // 50,000 USDC
         vm.startPrank(address(this));
         USDC.mint(address(this), swapAmount);
         USDC.approve(address(pool), swapAmount);
@@ -1084,7 +1067,8 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         assertTrue(result.isSettle, "Should be a settlement");
 
         // Calculate expected profit
-        uint256 strikePrice = optionMarketOTMFE.getPricePerCallAssetViaTick(pool, vars.tickUpper);
+        uint256 strikePrice =
+            optionMarketOTMFE.getPricePerCallAssetViaTick(IUniswapV3Pool(address(pool)), vars.tickUpper);
 
         uint256 expectedProfit = vars.balanceAfter.balance0 - vars.balanceBefore.balance0;
         assertEq(result.totalProfit, expectedProfit, "Profit should be close to expected");
@@ -1095,7 +1079,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         // Setup: Buy a call option
         testBuyCallOption();
 
-        (vars.sqrtPriceX96, vars.currentTick,,,,,) = pool.slot0();
+        (vars.sqrtPriceX96, vars.currentTick,,,,) = ICLPool(address(pool)).slot0();
         int24 tickSpacing = pool.tickSpacing();
         vars.tickUpper = ((vars.currentTick / tickSpacing) * tickSpacing) - tickSpacing;
         vars.tickLower = vars.tickUpper - 1 * tickSpacing;
@@ -1104,7 +1088,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         vm.warp(block.timestamp + 86500); // 10 minutes before
 
         // price increase
-        uint256 swapAmount = 10000e6; // 50,000 USDC
+        uint256 swapAmount = 100000e6; // 50,000 USDC
         vm.startPrank(address(this));
         USDC.mint(address(this), swapAmount);
         USDC.approve(address(pool), swapAmount);
@@ -1155,7 +1139,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         // Setup: Buy a put option
         testBuyPutOption();
 
-        (vars.sqrtPriceX96, vars.currentTick,,,,,) = pool.slot0();
+        (vars.sqrtPriceX96, vars.currentTick,,,,) = ICLPool(address(pool)).slot0();
         int24 tickSpacing = pool.tickSpacing();
         vars.tickLower = ((vars.currentTick / tickSpacing) * tickSpacing) + tickSpacing;
         vars.tickUpper = vars.tickLower + 1 * tickSpacing;
@@ -1164,7 +1148,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         vm.warp(block.timestamp + 86500); // 10 minutes before expiry
 
         // Price decrease
-        uint256 swapAmount = 5 ether; // 5 ETH
+        uint256 swapAmount = 10 ether; // 5 ETH
         vm.startPrank(address(this));
         ETH.mint(address(this), swapAmount);
         ETH.approve(address(pool), swapAmount);
@@ -1223,7 +1207,8 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         assertTrue(result.isSettle, "Should be a settlement");
 
         // Calculate expected profit
-        uint256 strikePrice = optionMarketOTMFE.getPricePerCallAssetViaTick(pool, vars.tickLower);
+        uint256 strikePrice =
+            optionMarketOTMFE.getPricePerCallAssetViaTick(IUniswapV3Pool(address(pool)), vars.tickLower);
 
         uint256 expectedProfit = vars.balanceAfter.balance1 - vars.balanceBefore.balance1;
         assertEq(result.totalProfit, expectedProfit, "Profit should be equal to expected");
@@ -1234,7 +1219,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         // Setup: Buy a call option
         testBuyCallOption();
 
-        (vars.sqrtPriceX96, vars.currentTick,,,,,) = pool.slot0();
+        (vars.sqrtPriceX96, vars.currentTick,,,,) = ICLPool(address(pool)).slot0();
         int24 tickSpacing = pool.tickSpacing();
         vars.tickUpper = ((vars.currentTick / tickSpacing) * tickSpacing) - tickSpacing;
         vars.tickLower = vars.tickUpper - 1 * tickSpacing;
@@ -1286,7 +1271,8 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         assertTrue(result.isSettle, "Should be a settlement");
 
         // Calculate expected profit
-        uint256 strikePrice = optionMarketOTMFE.getPricePerCallAssetViaTick(pool, vars.tickUpper);
+        uint256 strikePrice =
+            optionMarketOTMFE.getPricePerCallAssetViaTick(IUniswapV3Pool(address(pool)), vars.tickUpper);
 
         uint256 expectedProfit = vars.balanceAfter.balance0 - vars.balanceBefore.balance0;
 
@@ -1298,7 +1284,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         // Setup: Buy a call option
         testBuyCallOption();
 
-        (vars.sqrtPriceX96, vars.currentTick,,,,,) = pool.slot0();
+        (vars.sqrtPriceX96, vars.currentTick,,,,) = ICLPool(address(pool)).slot0();
         int24 tickSpacing = pool.tickSpacing();
         vars.tickUpper = ((vars.currentTick / tickSpacing) * tickSpacing) - tickSpacing;
         vars.tickLower = vars.tickUpper - 1 * tickSpacing;
@@ -1350,7 +1336,8 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         assertTrue(result.isSettle, "Should be a settlement");
 
         // Calculate expected profit
-        uint256 strikePrice = optionMarketOTMFE.getPricePerCallAssetViaTick(pool, vars.tickUpper);
+        uint256 strikePrice =
+            optionMarketOTMFE.getPricePerCallAssetViaTick(IUniswapV3Pool(address(pool)), vars.tickUpper);
 
         uint256 expectedProfit = vars.balanceAfter.balance0 - vars.balanceBefore.balance0;
 
@@ -1362,7 +1349,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         // Setup: Buy a put option
         testBuyPutOption();
 
-        (vars.sqrtPriceX96, vars.currentTick,,,,,) = pool.slot0();
+        (vars.sqrtPriceX96, vars.currentTick,,,,) = ICLPool(address(pool)).slot0();
         int24 tickSpacing = pool.tickSpacing();
         vars.tickLower = ((vars.currentTick / tickSpacing) * tickSpacing) + tickSpacing;
         vars.tickUpper = vars.tickLower + 1 * tickSpacing;
@@ -1414,7 +1401,8 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         assertTrue(result.isSettle, "Should be a settlement");
 
         // Calculate expected profit
-        uint256 strikePrice = optionMarketOTMFE.getPricePerCallAssetViaTick(pool, vars.tickLower);
+        uint256 strikePrice =
+            optionMarketOTMFE.getPricePerCallAssetViaTick(IUniswapV3Pool(address(pool)), vars.tickLower);
 
         uint256 expectedProfit = vars.balanceAfter.balance1 - vars.balanceBefore.balance1;
         assertEq(result.totalProfit, expectedProfit, "Profit should be equal to expected");
@@ -1425,7 +1413,7 @@ contract OptionMarketOTMFETest is Test, UniswapV3FactoryDeployer {
         // Setup: Buy a call option
         testBuyCallOption();
 
-        (vars.sqrtPriceX96, vars.currentTick,,,,,) = pool.slot0();
+        (vars.sqrtPriceX96, vars.currentTick,,,,) = ICLPool(address(pool)).slot0();
         int24 tickSpacing = pool.tickSpacing();
         vars.tickUpper = ((vars.currentTick / tickSpacing) * tickSpacing) - tickSpacing;
         vars.tickLower = vars.tickUpper - 1 * tickSpacing;

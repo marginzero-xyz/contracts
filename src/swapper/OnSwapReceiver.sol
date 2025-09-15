@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
-import {ISwapper} from "../interfaces/ISwapper.sol";
-
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
@@ -11,8 +9,14 @@ import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
 /// @author 0xcarrot
 /// @notice A contract that implements the ISwapper interface to receive and process token swaps
 /// @dev This contract is Ownable and uses SafeERC20 for token transfers
-contract OnSwapReceiver is ISwapper, Ownable {
+contract OnSwapReceiver is Ownable {
     using SafeERC20 for IERC20;
+
+    /// @notice Mapping to track whitelisted swappers
+    /// @dev The key is the address of the swapper, and the value is a boolean indicating if it is whitelisted
+    /// @dev Only whitelisted swappers can call the onSwapReceived function
+    /// @dev This mapping is used to restrict access to the onSwapReceived function
+    mapping(address => bool) public whitelistedSwappers;
 
     /// @notice Thrown when the swap operation fails
     /// @param data The error data returned by the failed swap
@@ -27,6 +31,9 @@ contract OnSwapReceiver is ISwapper, Ownable {
     /// @notice Thrown when a zero address is provided for a token or recipient
     error OnSwapReceiver__ZeroAddress();
 
+    /// @notice Thrown when the swapper is not whitelisted
+    error OnSwapReceiver__InvalidSwapper();
+
     /// @notice Emitted when a swap is successfully received and processed
     /// @param _amountIn The amount of input tokens
     /// @param _amountOut The amount of output tokens
@@ -36,7 +43,7 @@ contract OnSwapReceiver is ISwapper, Ownable {
     event OnSwapReceived(uint256 _amountIn, uint256 _amountOut, address _tokenIn, address _tokenOut, address _swapper);
 
     /// @notice Constructs the OnSwapReceiver contract
-    constructor() Ownable(msg.sender) {}
+    constructor(address _owner) Ownable(_owner) {}
 
     /// @notice Receives and processes a token swap
     /// @dev This function is called to execute a swap using the provided swap data
@@ -57,6 +64,10 @@ contract OnSwapReceiver is ISwapper, Ownable {
         uint256 minAmountout;
 
         (minAmountout, to, swapData) = abi.decode(_swapData, (uint256, address, bytes));
+
+        if (!whitelistedSwappers[to]) {
+            revert OnSwapReceiver__InvalidSwapper();
+        }
 
         if (_tokenIn == address(0) || _tokenOut == address(0) || to == address(0)) {
             revert OnSwapReceiver__ZeroAddress();
@@ -88,5 +99,14 @@ contract OnSwapReceiver is ISwapper, Ownable {
         tokenOut.safeTransfer(msg.sender, amountOut);
 
         emit OnSwapReceived(_amountIn, amountOut, _tokenIn, _tokenOut, to);
+    }
+
+    /// @notice Updates the whitelist status of a swapper
+    /// @dev Can only be called by the owner of the contract
+    /// @param _address The address of the swapper to update
+    /// @param _isWhitelisted The new whitelist status (true for whitelisted, false for de-whitelisted)
+    function updateSwapperWhitelist(address _address, bool _isWhitelisted) external onlyOwner {
+        whitelistedSwappers[_address] = _isWhitelisted;
+        emit SwapperWhitelisted(_address, _isWhitelisted);
     }
 }

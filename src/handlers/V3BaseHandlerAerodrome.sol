@@ -4,7 +4,7 @@ pragma solidity >=0.8.0 <0.9.0;
 import {IHandler} from "../interfaces/IHandler.sol";
 import {IHook} from "../interfaces/IHook.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
-import {IV3Pool} from "../interfaces/handlers/V3/IV3Pool.sol";
+import {ICLPool as IV3Pool} from "./aerodrome/ICLPool.sol";
 
 import {ERC6909} from "../libraries/tokens/ERC6909.sol";
 import {Math} from "openzeppelin-contracts/contracts/utils/math/Math.sol";
@@ -16,11 +16,11 @@ import {FixedPoint128} from "v3-core/libraries/FixedPoint128.sol";
 
 import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
 
-/// @title V3BaseHandler
-/// @author 0xcarrot
+/// @title V3BaseHandlerAerodrome
+/// @author arcwardeth
 /// @notice Abstract contract for handling Uniswap V3 liquidity positions
 /// @dev Implements IHandler interface and inherits from ERC6909 and Ownable
-abstract contract V3BaseHandler is IHandler, ERC6909, Ownable {
+abstract contract V3BaseHandlerAerodrome is IHandler, ERC6909, Ownable {
     using Math for uint128;
     using TickMath for int24;
     using SafeERC20 for IERC20;
@@ -35,7 +35,7 @@ abstract contract V3BaseHandler is IHandler, ERC6909, Ownable {
         uint128 tokensOwed1;
         address token0;
         address token1;
-        uint24 fee;
+        int24 tickSpacing;
         uint128 reservedLiquidity;
     }
 
@@ -132,6 +132,7 @@ abstract contract V3BaseHandler is IHandler, ERC6909, Ownable {
     error NotWhitelisted();
     error InsufficientLiquidity();
     error BeforeReserveCooldown();
+    error InvalidTicks();
     error HookNotRegistered();
     error Paused();
     error HookAlreadyRegistered();
@@ -225,7 +226,7 @@ abstract contract V3BaseHandler is IHandler, ERC6909, Ownable {
         if (tki.token0 == address(0)) {
             tki.token0 = cache.pool.token0();
             tki.token1 = cache.pool.token1();
-            tki.fee = cache.pool.fee();
+            tki.tickSpacing = cache.pool.tickSpacing();
         }
 
         (uint160 sqrtPriceX96,) = _getCurrentSqrtPriceX96(cache.pool);
@@ -530,7 +531,7 @@ abstract contract V3BaseHandler is IHandler, ERC6909, Ownable {
             tki.reservedLiquidity -= _params.liquidity;
             rld.liquidity -= _params.liquidity;
 
-            emit LogWithdrawReserveLiquidity(_params, context, amount0, amount1);
+            emit LogWithdrawReserveLiquidity(_params, context, amount1, amount1);
         }
     }
 
@@ -632,7 +633,7 @@ abstract contract V3BaseHandler is IHandler, ERC6909, Ownable {
     /// @return sqrtPriceX96 The current sqrt price
     /// @return tick The current tick
     function _getCurrentSqrtPriceX96(IV3Pool pool) internal view returns (uint160 sqrtPriceX96, int24 tick) {
-        (sqrtPriceX96, tick,,,,,) = pool.slot0();
+        (sqrtPriceX96, tick,,,,) = pool.slot0();
     }
 
     /// @notice Internal function to add liquidity to a position
