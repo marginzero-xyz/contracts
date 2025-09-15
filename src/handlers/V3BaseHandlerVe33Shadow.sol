@@ -133,7 +133,6 @@ abstract contract V3BaseHandlerVe33Shadow is IHandler, ERC6909, Ownable {
     error NotWhitelisted();
     error InsufficientLiquidity();
     error BeforeReserveCooldown();
-    error InvalidTicks();
     error HookNotRegistered();
     error Paused();
     error HookAlreadyRegistered();
@@ -539,7 +538,7 @@ abstract contract V3BaseHandlerVe33Shadow is IHandler, ERC6909, Ownable {
             tki.reservedLiquidity -= _params.liquidity;
             rld.liquidity -= _params.liquidity;
 
-            emit LogWithdrawReserveLiquidity(_params, context, amount1, amount1);
+            emit LogWithdrawReserveLiquidity(_params, context, amount0, amount1);
         }
     }
 

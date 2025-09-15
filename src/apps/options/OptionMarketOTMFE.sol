@@ -80,7 +80,6 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
     );
     event LogSettleOption(AssetsCache assetsCache, uint256[] liquiditySettled, address owner, uint256 optionId);
     event LogSplitOption(PositionSplitterParams params, uint256 newOptionId, address oldOwner);
-    event LogUpdateExerciseDelegate(address owner, address delegate, bool status);
     event LogOptionsMarketInitialized(
         address primePool, address optionPricing, address dpFee, address callAsset, address putAsset
     );
@@ -227,13 +226,13 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
 
     /// @notice Returns the name of the contract
     /// @return string The name of the contract
-    function name() public view override returns (string memory) {
+    function name() public pure override returns (string memory) {
         return "MarginZero Option Market OTM FE";
     }
 
     /// @notice Returns the symbol of the contract
     /// @return string The symbol of the contract
-    function symbol() public view override returns (string memory) {
+    function symbol() public pure override returns (string memory) {
         return "MZ-OM-OTM-FE";
     }
 
@@ -287,23 +286,17 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
                 revert NotValidStrikeTick();
             }
 
-            if (opTick.tickUpper > 0 && opTick.tickLower > 0 || opTick.tickUpper < 0 && opTick.tickLower < 0) {
-                if (uint24(opTick.tickUpper - opTick.tickLower) > maxTickDiff) {
-                    revert NotValidStrikeTick();
-                }
-            } else {
-                if (uint24(opTick.tickUpper + opTick.tickLower) > maxTickDiff) {
-                    revert NotValidStrikeTick();
-                }
+            if (uint24(uint256(int256(opTick.tickUpper) - int256(opTick.tickLower))) > maxTickDiff) {
+                revert NotValidStrikeTick();
             }
 
             if (
                 (
-                    opTick.tickLower < TickMath.getTickAtSqrtRatio(_getCurrentSqrtPriceX96(opTick.pool))
+                    opTick.tickLower <= TickMath.getTickAtSqrtRatio(_getCurrentSqrtPriceX96(opTick.pool))
                         && opTick.tickUpper > TickMath.getTickAtSqrtRatio(_getCurrentSqrtPriceX96(opTick.pool))
                 )
                     || (
-                        TickMath.getSqrtRatioAtTick(opTick.tickLower) < _getCurrentSqrtPriceX96(opTick.pool)
+                        TickMath.getSqrtRatioAtTick(opTick.tickLower) <= _getCurrentSqrtPriceX96(opTick.pool)
                             && TickMath.getSqrtRatioAtTick(opTick.tickUpper) > _getCurrentSqrtPriceX96(opTick.pool)
                     )
             ) {
@@ -366,7 +359,7 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
             }
         }
 
-        uint256 strike = getPricePerCallAssetViaTick(primePool, _params.isCall ? _params.tickUpper : _params.tickLower);
+        uint256 strike = getPricePerCallAssetViaTick(primePool, _params.isCall ? _params.tickLower : _params.tickUpper);
 
         uint256 premiumAmount = _getPremiumAmount(
             opTick.hook,
@@ -508,7 +501,7 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
                         revert NotApprovedSwapper();
                     }
 
-                    ac.assetToUse.transfer(address(_params.swapper[i]), amountToSwap);
+                    ac.assetToUse.safeTransfer(address(_params.swapper[i]), amountToSwap);
 
                     _params.swapper[i].onSwapReceived(
                         address(ac.assetToUse), address(ac.assetToGet), amountToSwap, _params.swapData[i]
@@ -576,7 +569,7 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
         }
 
         if (ac.totalProfit > 0) {
-            ac.assetToGet.transfer(msg.sender, ac.totalProfit);
+            ac.assetToGet.safeTransfer(msg.sender, ac.totalProfit);
         }
 
         emit LogSettleOption(ac, _params.liquidityToSettle, ownerOf(_params.optionId), _params.optionId);
@@ -728,7 +721,7 @@ contract OptionMarketOTMFE is ReentrancyGuard, Multicall, Ownable, ERC721 {
     /// @param _ttlStartTime The start time for the TTL
     /// @param ttlStatus The TTL status
     /// @param _BUFFER_TIME The buffer time
-    function updatePoolApporvals(
+    function updatePoolApprovals(
         address _settler,
         bool _statusSettler,
         address _pool,
